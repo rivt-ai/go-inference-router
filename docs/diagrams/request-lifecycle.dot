@@ -1,0 +1,62 @@
+// A streaming chat call, host to provider API and back.
+// Render: dot -Tsvg request-lifecycle.dot -o request-lifecycle.svg
+digraph request_lifecycle {
+  rankdir=TB;
+  fontname="Helvetica";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, fillcolor="#f8fafc"];
+  edge [fontname="Helvetica", fontsize=9];
+
+  start [label="host: llm.v1.chat\n{profile_id, stream: true, request}", shape=ellipse, fillcolor="#dbeafe"];
+
+  decode   [label="rpcserver.chat\ndecode params, install\nstream emitter keyed by JSON-RPC ID"];
+  resolve  [label="Router.profileProvider\nlook up Model Profile"];
+  unknown  [label="*llm.Error\nKindInvalidRequest\n\"unknown model profile\"", fillcolor="#fee2e2"];
+  entry    [label="Router.providerEntry\nprovider already open?"];
+  wait     [label="block on entry.ready\n(another caller is opening it)"];
+  open     [label="Source.Open\nresolve secrets, locate binary,\nspawn + initialize"];
+  openfail [label="entry removed from cache;\nerror returned, next call retries", fillcolor="#fee2e2"];
+  merged   [label="request.Model = profile.Model\nrequest.Extra = merge(profile.Options, request.Extra)"];
+  genctx   [label="generationContext\ncancel on caller ctx OR provider retirement"];
+  cap      [label="provider implements llm.Streamer?"];
+  nostream [label="*llm.Error KindInvalidRequest\n\"profile does not support streaming\"", fillcolor="#fee2e2"];
+  slot     [label="providerproc: acquire concurrency slot\n(queue above MaxConcurrency)"];
+  call     [label="llm.v1.provider.chat\n{stream_id, correlation_id, request}"];
+  adapter  [label="Provider Process: adapter\nencodes vendor wire format"];
+  http     [label="provider API\nSSE response", shape=cylinder, fillcolor="#fee2e2"];
+  scan     [label="transport.ScanSSE +\nStallGuard.Reset per frame"];
+  ev       [label="llm.v1.stream.event\nseq = n+1", fillcolor="#dcfce7"];
+  order    [label="sequence == previous+1?"];
+  seqfail  [label="KindProtocol \"out-of-order\"\ncancel the call", fillcolor="#fee2e2"];
+  fwd      [label="Router onEvent →\nrpcserver notify host", fillcolor="#dcfce7"];
+  done     [label="adapter accumulates\nand returns *llm.Response"];
+  resp     [label="llm.v1.chat result\n{response}", shape=ellipse, fillcolor="#dbeafe"];
+
+  obs [label="observations (opt-in)\nrequest.chat started/finished:\nduration, usage, stream_events, typed error", shape=note, fillcolor="#fef9c3"];
+
+  start   -> decode -> resolve;
+  resolve -> unknown [label="miss"];
+  resolve -> entry   [label="hit"];
+  entry   -> wait    [label="opening"];
+  entry   -> open    [label="cold"];
+  entry   -> merged  [label="warm"];
+  wait    -> merged;
+  open    -> openfail [label="error"];
+  open    -> merged   [label="ok"];
+  merged  -> genctx -> cap;
+  cap     -> nostream [label="no"];
+  cap     -> slot     [label="yes"];
+  slot    -> call -> adapter -> http -> scan;
+  scan    -> ev [label="per delta"];
+  ev      -> order;
+  order   -> seqfail [label="no"];
+  order   -> fwd     [label="yes"];
+  fwd     -> scan    [label="next frame", style=dashed, constraint=false];
+  scan    -> done    [label="stream end"];
+  done    -> resp;
+
+  {rank=same; fwd; obs;}
+  fwd -> obs [style=dotted, arrowhead=none, color="#a16207"];
+
+  cancel [label="host cancels\n→ $/cancelRequest → Router ctx cancel\n→ provider ctx cancel → HTTP abort", shape=note, fillcolor="#fce7f3"];
+  cancel -> call [style=dotted, color="#be185d", constraint=false];
+}

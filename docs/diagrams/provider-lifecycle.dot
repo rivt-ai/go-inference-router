@@ -1,0 +1,43 @@
+// States of one Provider Definition inside a running Router.
+// Render: dot -Tsvg provider-lifecycle.dot -o provider-lifecycle.svg
+digraph provider_lifecycle {
+  rankdir=LR;
+  fontname="Helvetica";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, fillcolor="#f1f5f9"];
+  edge [fontname="Helvetica", fontsize=9];
+
+  configured [label="configured\nin YAML, never opened", fillcolor="#e2e8f0"];
+  needinstall [label="install_required\nSource.Available == false", fillcolor="#fef3c7"];
+  stopped    [label="stopped\ninstalled, not running", fillcolor="#e2e8f0"];
+  opening    [label="opening\nentry in cache, ready chan open\nconcurrent callers block here", fillcolor="#dbeafe"];
+  available  [label="available\nprovider held, ctx live,\nslots bounded by MaxConcurrency", fillcolor="#dcfce7"];
+  stale      [label="stale\nreplaced while opening —\nclosed immediately, never served", fillcolor="#fee2e2"];
+  retiring   [label="retiring\nentry.cancel(): in-flight calls\ncancelled, then Close()", fillcolor="#fee2e2"];
+  removing   [label="removing\nremoval lock held for this\nprovider type", fillcolor="#fce7f3"];
+
+  configured -> needinstall [label="type != openai-compatible\nand no verified binary"];
+  configured -> stopped     [label="binary located\n+ digest verified"];
+  needinstall -> stopped    [label="install.plan → install.approve"];
+
+  stopped   -> opening   [label="first request\n(lazy)"];
+  opening   -> available [label="initialize ok"];
+  opening   -> stopped   [label="Open failed:\nentry evicted, next request retries", color="#dc2626"];
+  opening   -> stale     [label="Apply replaced the definition\nwhile opening", color="#dc2626"];
+  stale     -> stopped   [label="Close()"];
+
+  available -> retiring  [label="Apply: definition changed/removed"];
+  available -> retiring  [label="llm.v1.providers.stop"];
+  available -> retiring  [label="Router.Close()"];
+  available -> removing  [label="install.remove of an\nunpinned version of this type"];
+  available -> available [label="Apply: definition byte-identical\n(kept running); or profile-only change"];
+
+  removing  -> retiring  [label="retireAndWait"];
+  retiring  -> stopped   [label="process exited"];
+
+  note [shape=note, fillcolor="#fef9c3", label=
+"Guarantees\n\l• Open is lazy and happens at most once per entry.\l\
+• The Router lock is never held across a process launch.\l\
+• A call context is cancelled by EITHER the caller or provider retirement.\l\
+• install.remove refuses versions pinned by configuration.\l\
+• A cached version cannot be deleted mid-install (cacheMu).\l"];
+}

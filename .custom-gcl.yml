@@ -1,0 +1,8 @@
+version: v2.11.4
+name: custom-golangci-lint
+destination: .
+
+plugins:
+  - module: github.com/antonikliment/go-code-metrics
+    import: github.com/antonikliment/go-code-metrics/goclocbudget
+    version: v0.0.2

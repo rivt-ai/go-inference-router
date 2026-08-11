@@ -1,0 +1,114 @@
+// Component and module structure of go-inference-router.
+// Render: dot -Tsvg components.dot -o components.svg
+digraph components {
+  rankdir=TB;
+  compound=true;
+  fontname="Helvetica";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, fillcolor="#f5f5f5"];
+  edge [fontname="Helvetica", fontsize=9];
+
+  host [label="Host application\n(any Go agent, CLI, editor,\nserver — Invokr is one)", fillcolor="#dbeafe", shape=box3d];
+
+  subgraph cluster_core {
+    label="root module — zero third-party dependencies";
+    style="rounded,dashed";
+    color="#2563eb";
+    fontsize=10;
+
+    llm [label="package llm\nRequest · Response · Message\nEvent · Error · Capabilities\nObservation", fillcolor="#e0e7ff"];
+
+    subgraph cluster_protocol {
+      label="protocol/";
+      style=rounded;
+      color="#94a3b8";
+      llmv1        [label="llmv1\nwire types + method names"];
+      jsonrpc      [label="jsonrpc\nNDJSON JSON-RPC 2.0"];
+      providerhost [label="providerhost\nserve an llm.Provider\nover stdio"];
+    }
+
+    subgraph cluster_internal {
+      label="internal/ (plumbing, not contract)";
+      style=rounded;
+      color="#94a3b8";
+      driver    [label="driver\nBase · KindForStatus"];
+      transport [label="transport\nScanSSE · StallGuard"];
+    }
+
+    openaicompat [label="provider/openaicompat\nbuilt-in, net/http only", fillcolor="#dcfce7"];
+  }
+
+  subgraph cluster_router {
+    label="router module";
+    style="rounded,dashed";
+    color="#7c3aed";
+    fontsize=10;
+
+    routerpkg    [label="router.Router\nprofile resolution +\nprovider lifecycle", fillcolor="#ede9fe"];
+    source       [label="router.Source\n(seam: DefaultSource\nor your own)", shape=hexagon, fillcolor="#ddd6fe"];
+    cfg          [label="router/config\nversioned YAML,\nwhole-definition replace"];
+    secret       [label="router/secret\nenv · keychain ·\nage store · file"];
+    install      [label="router/install\nEd25519 manifest,\nSHA-256, atomic cache"];
+    rpcserver    [label="router/rpcserver\nhost-facing llm.v1"];
+    providerproc [label="router/providerproc\nchild-process client"];
+    routercmd    [label="cmd/go-inference-router\nbinary", shape=component, fillcolor="#ede9fe"];
+  }
+
+  subgraph cluster_procs {
+    label="Provider Processes — one Go module each";
+    style="rounded,dashed";
+    color="#ea580c";
+    fontsize=10;
+    openaisdk    [label="provider/openaisdk\ngo-inference-router-provider-openai", shape=component, fillcolor="#ffedd5"];
+    anthropicsdk [label="provider/anthropicsdk\ngo-inference-router-provider-anthropic", shape=component, fillcolor="#ffedd5"];
+    bedrocksdk   [label="provider/bedrocksdk\ngo-inference-router-provider-bedrock", shape=component, fillcolor="#ffedd5"];
+    custom       [label="your own provider\n(same recipe)", shape=component, style="dashed,filled", fillcolor="#fff7ed"];
+  }
+
+  registry [label="signed registry\nproviders.json + .sig", shape=cylinder, fillcolor="#fef9c3"];
+  api      [label="provider APIs\n(HTTP)", shape=cylinder, fillcolor="#fee2e2"];
+
+  // host entry points
+  host -> rpcserver    [label="runtime mode:\nllm.v1 over stdio", color="#2563eb", penwidth=2];
+  host -> routerpkg    [label="embedded runtime", style=dashed, color="#7c3aed"];
+  host -> openaicompat [label="library mode", style=dashed, color="#16a34a"];
+  host -> llm          [label="imports types", style=dotted];
+
+  // runtime wiring
+  rpcserver    -> routerpkg;
+  routerpkg    -> source  [label="Available / Open"];
+  source       -> openaicompat [label="type: openai-compatible\n(in process)"];
+  source       -> providerproc [label="every other type\n(child process)"];
+  source       -> secret  [label="resolve refs"];
+  source       -> install [label="Locate + verify digest"];
+  routerpkg    -> cfg;
+  routercmd    -> rpcserver;
+  routercmd    -> install;
+  install      -> registry [label="fetch + verify", style=dashed];
+
+  providerproc -> openaisdk    [label="llm.v1 stdio", color="#ea580c"];
+  providerproc -> anthropicsdk [color="#ea580c"];
+  providerproc -> bedrocksdk   [color="#ea580c"];
+  providerproc -> custom       [color="#ea580c", style=dashed];
+
+  openaisdk    -> providerhost [style=dotted, constraint=false];
+  anthropicsdk -> providerhost [style=dotted, constraint=false];
+  bedrocksdk   -> providerhost [style=dotted, constraint=false];
+  custom       -> providerhost [style=dotted, constraint=false];
+
+  providerhost -> jsonrpc;
+  providerproc -> jsonrpc;
+  rpcserver    -> jsonrpc;
+  jsonrpc      -> llmv1 [style=dotted];
+  llmv1        -> llm;
+
+  openaicompat -> driver;
+  openaicompat -> transport;
+  openaisdk    -> driver [style=dotted, constraint=false];
+  driver       -> transport;
+  driver       -> llm;
+
+  openaicompat -> api  [style=dashed];
+  openaisdk    -> api  [style=dashed];
+  anthropicsdk -> api  [style=dashed];
+  bedrocksdk   -> api  [style=dashed];
+}

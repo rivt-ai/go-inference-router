@@ -1,0 +1,42 @@
+version: 1
+
+# Workspace .go-inference-router/models.yaml definitions replace same-named user entries.
+providers:
+  openai:
+    type: openai
+    secrets:
+      api_key:
+        env: OPENAI_API_KEY
+
+  anthropic:
+    type: anthropic
+    secrets:
+      api_key:
+        keychain: anthropic-api-key
+
+  bedrock:
+    type: bedrock
+    options:
+      region: us-east-1
+      profile: default
+
+  local:
+    type: openai-compatible
+    base_url: http://localhost:8080/v1
+
+models:
+  gpt:
+    provider: openai
+    model: gpt-5
+
+  sonnet:
+    provider: anthropic
+    model: claude-sonnet
+
+  bedrock-sonnet:
+    provider: bedrock
+    model: us.anthropic.claude-sonnet
+
+  local-coder:
+    provider: local
+    model: qwen-coder

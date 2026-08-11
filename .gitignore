@@ -1,0 +1,7 @@
+custom-golangci-lint
+*.test
+.cache/
+.codex/
+.idea/
+.claude/
+examples/embedded-router/embedded-router

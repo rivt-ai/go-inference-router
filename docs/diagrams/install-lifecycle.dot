@@ -1,0 +1,107 @@
+// Two-phase, approval-gated Provider Process installation.
+// Render: dot -Tsvg install-lifecycle.dot -o install-lifecycle.svg
+digraph install_lifecycle {
+  rankdir=TB;
+  fontname="Helvetica";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, fillcolor="#f8fafc"];
+  edge [fontname="Helvetica", fontsize=9];
+  reject [shape=box, style="rounded,filled", fillcolor="#fee2e2"];
+
+  subgraph cluster_plan {
+    label="Phase 1 — plan (nothing is downloaded or executed)";
+    style="rounded,dashed"; color="#2563eb"; fontsize=10;
+
+    p0   [label="host: llm.v1.install.plan\n{provider, version?}", shape=ellipse, fillcolor="#dbeafe"];
+    p1   [label="validate identifiers\nsafeName / safeVersion"];
+    p2   [label="registry URL is https\n(or http on loopback)\nand key is Ed25519"];
+    p3   [label="fetch manifest + manifest.sig\nsize-capped read"];
+    p4   [label="ed25519.Verify(publicKey, body, sig)"];
+    p5   [label="match provider + llm.v1 +\nGOOS + GOARCH;\nno version → newest STABLE semver"];
+    p6   [label="validate artifact:\nsafe version, size >= 0,\nsecure URL, 64-hex SHA-256"];
+    p7   [label="mint one-use plan ID,\n10-minute expiry", fillcolor="#e0e7ff"];
+    p8   [label="return InstallPlan\n{id, version, source, size, sha256, expires}", shape=ellipse, fillcolor="#dbeafe"];
+  }
+
+  human [label="host shows the plan to a human\n(what, from where, how big, which digest)", shape=note, fillcolor="#fef9c3"];
+
+  subgraph cluster_approve {
+    label="Phase 2 — approve (the only step that writes to disk)";
+    style="rounded,dashed"; color="#16a34a"; fontsize=10;
+
+    a0 [label="host: llm.v1.install.approve\n{plan_id}", shape=ellipse, fillcolor="#dcfce7"];
+    a1 [label="consume plan (deleted on lookup —\nreplay is impossible)"];
+    a2 [label="expired?"];
+    a3 [label="take cache read lock\n(excludes Remove, allows parallel installs)"];
+    a4 [label="GET artifact under\nLimitReader(size+1)"];
+    a5 [label="write to temp file 0700 while\nhashing with SHA-256"];
+    a6 [label="written == size AND\nhash == manifest digest?"];
+    a7 [label="fsync, close, atomic rename\ninto cache/<provider>/<version>/<os>-<arch>/"];
+    a8 [label="write .sha256 sidecar atomically", fillcolor="#dcfce7"];
+    a9 [label="return {path}", shape=ellipse, fillcolor="#dcfce7"];
+  }
+
+  subgraph cluster_launch {
+    label="Every launch — verify again";
+    style="rounded,dashed"; color="#7c3aed"; fontsize=10;
+    l0 [label="Source.Open → Installer.Locate"];
+    l1 [label="regular file?"];
+    l2 [label="re-hash binary == recorded .sha256?"];
+    l3 [label="exec with allow-listed env;\nsecrets only via provider.initialize", fillcolor="#ede9fe"];
+  }
+
+  subgraph cluster_remove {
+    label="Reclaiming space";
+    style="rounded,dashed"; color="#be185d"; fontsize=10;
+    r0 [label="llm.v1.install.remove\n{provider, version}", shape=ellipse, fillcolor="#fce7f3"];
+    r1 [label="version pinned by config?"];
+    r2 [label="claim removal slot for this type;\nstop unpinned open processes of it"];
+    r3 [label="take cache WRITE lock,\nRemoveAll(version dir)", fillcolor="#fce7f3"];
+  }
+
+  bad1 [label="KindInvalidRequest\ninvalid provider or version", fillcolor="#fee2e2"];
+  bad2 [label="registry URL or public key is invalid", fillcolor="#fee2e2"];
+  bad3 [label="KindProtocol\nsignature verification failed", fillcolor="#fee2e2"];
+  bad4 [label="KindUnavailable\nno compatible provider artifact", fillcolor="#fee2e2"];
+  bad5 [label="KindProtocol\ninvalid artifact in registry", fillcolor="#fee2e2"];
+  bad6 [label="KindInvalidRequest\nunknown or already-used plan", fillcolor="#fee2e2"];
+  bad7 [label="KindInvalidRequest\ninstall plan expired", fillcolor="#fee2e2"];
+  bad8 [label="KindProtocol\nsize or SHA-256 mismatch\n(temp file removed)", fillcolor="#fee2e2"];
+  bad9 [label="KindProtocol\nintegrity record missing/invalid\nor binary digest mismatch —\nrefuse to exec", fillcolor="#fee2e2"];
+  bad10 [label="KindInvalidRequest\nversion is pinned by configuration", fillcolor="#fee2e2"];
+
+  p0 -> p1;
+  p1 -> bad1 [label="no"];
+  p1 -> p2  [label="ok"];
+  p2 -> bad2 [label="no"];
+  p2 -> p3  [label="ok"];
+  p3 -> p4 -> p5;
+  p4 -> bad3 [label="bad sig"];
+  p5 -> bad4 [label="none"];
+  p5 -> p6  [label="match"];
+  p6 -> bad5 [label="malformed"];
+  p6 -> p7  [label="ok"];
+  p7 -> p8 -> human -> a0;
+
+  a0 -> a1;
+  a1 -> bad6 [label="unknown"];
+  a1 -> a2  [label="found"];
+  a2 -> bad7 [label="yes"];
+  a2 -> a3  [label="no"];
+  a3 -> a4 -> a5 -> a6;
+  a6 -> bad8 [label="no"];
+  a6 -> a7  [label="yes"];
+  a7 -> a8 -> a9;
+
+  a9 -> l0 [style=dashed, label="later, on first request"];
+  l0 -> l1;
+  l1 -> bad9 [label="no"];
+  l1 -> l2  [label="yes"];
+  l2 -> bad9 [label="mismatch"];
+  l2 -> l3  [label="match"];
+
+  a9 -> r0 [style=dashed, label="eventually"];
+  r0 -> r1;
+  r1 -> bad10 [label="yes"];
+  r1 -> r2   [label="no"];
+  r2 -> r3;
+}

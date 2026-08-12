@@ -3,8 +3,8 @@ package openaisdk
 import (
 	"context"
 
-	"github.com/rivt-ai/go-inference-router"
 	"github.com/openai/openai-go/responses"
+	"github.com/rivt-ai/go-inference-router"
 )
 
 // Chat implements llm.Provider.

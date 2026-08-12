@@ -1,0 +1,43 @@
+name: Dependabot auto-merge
+
+# `pull_request`, not `pull_request_target`. Dependabot raises its PRs from
+# branches inside this repository, so the ordinary trigger fires for them and
+# this workflow never needs the base-repo write token that
+# `pull_request_target` grants to a run initiated by a pull request.
+on: pull_request
+
+permissions: {}
+
+jobs:
+  automerge:
+    # `github.event.pull_request.user.login` is the PR's author and is fixed
+    # for the life of the PR. `github.actor` — which this check might use
+    # instead — is whoever most recently triggered the event, so a re-run or a
+    # later push can make another author's PR present as Dependabot's.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # Scoped to the job rather than the workflow, so write access exists only
+    # where it is used.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch dependency metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Only patch/minor bumps auto-merge. Majors (and grouped PRs that
+      # contain a major) stop here for manual review.
+      #
+      # --auto queues the merge behind the repository's required checks, so
+      # Test, Lint, E2E and Security still have to pass before anything lands.
+      - name: Enable auto-merge for patch/minor
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

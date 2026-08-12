@@ -3,10 +3,10 @@ package openaisdk
 import (
 	"strings"
 
-	"github.com/rivt-ai/go-inference-router"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
+	"github.com/rivt-ai/go-inference-router"
 )
 
 // buildParams translates a neutral request into Responses API params.

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	llm "github.com/rivt-ai/go-inference-router"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	llm "github.com/rivt-ai/go-inference-router"
 )
 
 func buildInput(request llm.Request) (*bedrockruntime.ConverseInput, error) { //nolint:gocognit,gocyclo // request translation is clearest as one pass

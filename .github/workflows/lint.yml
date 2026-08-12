@@ -1,0 +1,56 @@
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+
+      # Two expensive compiles per run: the upstream linter, and the custom
+      # build that links the goclocbudget plugin into it. Neither output can
+      # change unless .custom-gcl.yml does, since that file pins both the
+      # golangci-lint version and the plugin version.
+      - name: Cache golangci-lint binaries
+        id: lint-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/go/bin/golangci-lint
+            custom-golangci-lint
+          key: golangci-${{ runner.os }}-${{ hashFiles('.custom-gcl.yml') }}
+
+      - name: Install golangci-lint
+        if: steps.lint-cache.outputs.cache-hit != 'true'
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+
+      # A restored binary is older than the freshly checked-out .custom-gcl.yml,
+      # so the make rule would rebuild it on mtime alone. Touching it asserts
+      # what the cache key already guarantees: this binary matches this config.
+      - name: Mark cached lint binary current
+        if: steps.lint-cache.outputs.cache-hit == 'true'
+        run: touch custom-golangci-lint
+
+      # lint-ci covers the root module and every submodule (see the Makefile's
+      # SUBMODULES list); no per-module fan-out is needed here.
+      - name: Lint
+        run: make lint-ci

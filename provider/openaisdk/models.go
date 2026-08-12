@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rivt-ai/go-inference-router"
 	"github.com/openai/openai-go"
+	"github.com/rivt-ai/go-inference-router"
 )
 
 // Embed implements llm.Embedder. Vectors come back in request order; a

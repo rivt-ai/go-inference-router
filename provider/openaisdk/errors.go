@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/openai/openai-go"
 	"github.com/rivt-ai/go-inference-router"
 	"github.com/rivt-ai/go-inference-router/internal/driver"
-	"github.com/openai/openai-go"
 )
 
 // classify converts an SDK error into the seam's typed error.

@@ -7,7 +7,7 @@ go 1.26
 
 require (
 	github.com/openai/openai-go v1.12.0
-	github.com/rivt-ai/go-inference-router v0.1.0
+	github.com/rivt-ai/go-inference-router v0.4.0
 )
 
 require (

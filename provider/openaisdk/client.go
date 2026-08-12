@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rivt-ai/go-inference-router"
-	"github.com/rivt-ai/go-inference-router/internal/driver"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/rivt-ai/go-inference-router"
+	"github.com/rivt-ai/go-inference-router/internal/driver"
 )
 
 // DefaultStallTimeout bounds silence between stream reads, not total duration.

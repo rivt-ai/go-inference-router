@@ -1,0 +1,50 @@
+name: E2E
+
+# Every pull request runs the driver against a real, pinned llama.cpp build and
+# a real, pinned GGUF model, and must generate tokens. There is no skip tier:
+# provisioning failure fails the job rather than degrading into a skip, because
+# a skipped engine test is indistinguishable from a passing one in a green
+# check.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+
+      # Keyed on the pin manifest itself, so a changed pin can never be served
+      # a stale artifact. Matches scripts/provision-e2e-llamacpp.sh's default
+      # cache location.
+      - name: Cache pinned E2E fixtures
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/go-inference-router-e2e
+          key: e2e-fixtures-${{ hashFiles('scripts/e2e-fixtures.env') }}
+
+      - name: go mod download
+        run: go mod download
+
+      # Provisioning is part of the test, not a best-effort step: a failure
+      # here fails the job rather than degrading into a skip.
+      - name: Real llama.cpp process E2E
+        run: make e2e

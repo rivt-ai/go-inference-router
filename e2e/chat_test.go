@@ -37,10 +37,19 @@ func TestChatProducesTokensAndUsage(t *testing.T) {
 
 // TestChatStreamMatchesChat is the seam's central promise: a caller that wants
 // incremental output and a caller that does not must end up with the same
-// answer. Greedy sampling with a fixed seed makes that assertable.
+// answer. Greedy sampling with a fixed seed makes that assertable — but only
+// once llama.cpp's own prompt-cache reuse is out of the way. Both calls below
+// send the identical prompt back-to-back on the same server, and llama.cpp's
+// server defaults to cache_prompt=true: the second call would reuse the KV
+// cache the first one left behind instead of recomputing it, and the server's
+// own docs note that reused and freshly computed logits are not guaranteed
+// bit-identical. cache_prompt: false forces both calls through the same
+// from-scratch computation, which is what "greedy and deterministic" actually
+// requires here.
 func TestChatStreamMatchesChat(t *testing.T) {
 	client := sharedServer.client()
 	prompt := request("Count: one, two,")
+	prompt.Extra = map[string]any{"cache_prompt": false}
 
 	batch, err := client.Chat(testContext(t), prompt)
 	if err != nil {

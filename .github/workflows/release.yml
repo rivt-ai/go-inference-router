@@ -77,6 +77,16 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: "**/go.sum"
 
+      # Each published submodule requires the root module by version, not by
+      # replace directive, because a dependency's replace directives are
+      # ignored by whoever imports it. Those requirements have to name the
+      # version being tagged here, or `go get` on a submodule resolves the
+      # root module to something this commit was never tested against.
+      - name: Require submodule go.mod to pin this version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ./scripts/check-module-versions.sh "$RELEASE_VERSION"
+
       # The signing key lives in RUNNER_TEMP, not the workspace, so it can
       # never end up in a build artifact or a git status. The registry public
       # key is not secret (it ships embedded in the built binaries) but it

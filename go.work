@@ -1,0 +1,16 @@
+// Local development workspace. Submodules declare a real published version of
+// the root module in their go.mod so the module proxy can resolve them; this
+// workspace makes local builds and tests use the checkout instead.
+//
+// Not part of any published module zip — the proxy serves each module
+// directory on its own.
+go 1.26
+
+use (
+	.
+	./examples/embedded-router
+	./provider/anthropicsdk
+	./provider/bedrocksdk
+	./provider/openaisdk
+	./router
+)

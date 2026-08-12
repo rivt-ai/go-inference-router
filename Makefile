@@ -1,4 +1,4 @@
-.PHONY: test test-race test-submodules build e2e lint lint-ci lint-submodules verify fmt tidy release
+.PHONY: test test-race test-submodules build e2e lint lint-ci lint-submodules verify fmt tidy release sync-module-versions check-module-versions
 
 CUSTOM_LINT ?= ./custom-golangci-lint
 CUSTOM_LINT_ABS := $(abspath $(CUSTOM_LINT))
@@ -76,3 +76,17 @@ tidy:
 release:
 	@test -n "$(VERSION)" || (echo "VERSION is required" && exit 1)
 	./scripts/build-release.sh "$(VERSION)" "$(OUTDIR)"
+
+# Published submodules require the root module by version rather than by
+# replace directive, so they have to be pointed at the version about to be
+# tagged before a release runs. go.work keeps local builds on the checkout.
+sync-module-versions:
+	@test -n "$(VERSION)" || (echo "VERSION is required" && exit 1)
+	@for m in $(SUBMODULES); do \
+		(cd $$m && go mod edit -require=github.com/rivt-ai/go-inference-router@$(VERSION)) || exit 1; \
+		echo "$$m -> $(VERSION)"; \
+	done
+
+check-module-versions:
+	@test -n "$(VERSION)" || (echo "VERSION is required" && exit 1)
+	./scripts/check-module-versions.sh "$(VERSION)"

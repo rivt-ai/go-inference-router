@@ -238,6 +238,27 @@ Build signed release assets with `make release VERSION=vX.Y.Z`. It requires
 `INFROUTER_REGISTRY_PUBLIC_KEY`, `INFROUTER_REGISTRY_SIGNING_KEY`, and
 optionally `INFROUTER_RELEASE_BASE_URL`.
 
+`go.work` puts every module in one workspace, so local builds and tests use the
+checkout. Published submodules still require the root module *by version* — a
+dependency's `replace` directives are ignored by whoever imports it — so their
+`go.mod` has to name the version being released.
+
+### Releasing
+
+The Go module proxy resolves each submodule from a tag prefixed with its
+directory (`router/v0.2.0`), and a submodule's `go.sum` can only record the
+root module's hash once the root tag exists. So a version goes out in two
+passes:
+
+1. `make sync-module-versions VERSION=vX.Y.Z`, commit.
+2. Run the **Release** workflow — builds the signed assets and tags the root
+   module. `make check-module-versions VERSION=vX.Y.Z` gates it.
+3. `make tidy`, commit — records the now-published root module's hash in each
+   submodule's `go.sum`.
+4. Run the **Release Go modules** workflow — verifies each submodule builds
+   with `GOWORK=off` (as a consumer sees it), then creates the per-directory
+   tags.
+
 ## Status
 
 Pre-1.0 and unreleased. The Go API may still change without notice. The

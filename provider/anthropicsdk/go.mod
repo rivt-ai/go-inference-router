@@ -8,7 +8,7 @@ go 1.26
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.62.0
-	github.com/rivt-ai/go-inference-router v0.0.0
+	github.com/rivt-ai/go-inference-router v0.1.0
 )
 
 require (
@@ -24,6 +24,3 @@ require (
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 )
-
-// The core module is untagged pre-1.0. Drop this once it carries a version.
-replace github.com/rivt-ai/go-inference-router => ../..

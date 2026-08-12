@@ -6,8 +6,8 @@ module github.com/rivt-ai/go-inference-router/provider/openaisdk
 go 1.26
 
 require (
-	github.com/rivt-ai/go-inference-router v0.0.0
 	github.com/openai/openai-go v1.12.0
+	github.com/rivt-ai/go-inference-router v0.1.0
 )
 
 require (
@@ -16,6 +16,3 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 )
-
-// The core module is untagged pre-1.0. Drop this once it carries a version.
-replace github.com/rivt-ai/go-inference-router => ../..

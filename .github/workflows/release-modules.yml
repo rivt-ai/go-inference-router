@@ -1,0 +1,97 @@
+name: Release Go modules
+
+# The Go module proxy resolves a submodule from a tag prefixed with the
+# submodule's directory, so `go get .../router@vX.Y.Z` needs a `router/vX.Y.Z`
+# tag that the root release does not create.
+#
+# This runs after Release, not inside it: each submodule requires the root
+# module by version, and its go.sum can only record the root module's hash once
+# the root tag is published. The order for a version is therefore
+#
+#   1. make sync-module-versions VERSION=vX.Y.Z   (point submodules at it)
+#   2. Release                                    (tags and publishes the root)
+#   3. make tidy && commit                        (records the root's hash)
+#   4. this workflow                              (tags the submodules)
+#
+# Step 3 is what the GOWORK=off verification below proves was done: go.work
+# hides a missing go.sum entry locally, and consumers have no go.work.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Module SemVer tag to publish (must match a published root release)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag-modules:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require main and an existing root release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main || {
+            echo "Module tags must be published from main, got $GITHUB_REF" >&2
+            exit 1
+          }
+          [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] || {
+            echo "Version must be SemVer prefixed with v" >&2
+            exit 1
+          }
+          gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null || {
+            echo "Root release $RELEASE_VERSION does not exist; run Release first" >&2
+            exit 1
+          }
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+
+      - name: Require submodule go.mod to pin this version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ./scripts/check-module-versions.sh "$RELEASE_VERSION"
+
+      # Builds and tests each submodule the way a consumer sees it: workspace
+      # disabled, module graph readonly, so the root module is fetched from the
+      # proxy at the pinned version. A missing or stale go.sum entry fails here
+      # rather than in someone else's build after the tag is immutable.
+      - name: Verify submodules resolve without the workspace
+        env:
+          GOWORK: "off"
+          GOFLAGS: -mod=readonly
+        run: |
+          for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk; do
+            echo "== $module =="
+            (cd "$module" && go build ./... && go test ./...)
+          done
+
+      # Created through the API so the checkout needs no push credential.
+      - name: Tag published submodules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk; do
+            tag="$module/$RELEASE_VERSION"
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA" >/dev/null
+            echo "tagged $tag"
+          done

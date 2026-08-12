@@ -1,0 +1,20 @@
+# Policy for the workflow audit in .github/workflows/security.yml.
+rules:
+  unpinned-uses:
+    config:
+      # Every action is hash-pinned, first-party GitHub ones included.
+      #
+      # A hash pin adds nothing for orgs that are already the workflow's trust
+      # root — the risk it addresses is not who owns the org, it is that a
+      # *tag* is mutable state: `@v7` is a pointer that can be moved, by a
+      # compromised maintainer account or a push that never gets reviewed,
+      # without any commit appearing in this repo. A hash cannot be moved.
+      # That is the whole property we want, and it is worth having on the
+      # actions that check out our code and hold the release credentials, not
+      # just on the ones from smaller publishers.
+      #
+      # The Dependabot churn this causes is the intended behaviour: each bump
+      # becomes a reviewable diff with a cooldown in front of it, rather than
+      # a silent pointer move nobody sees.
+      policies:
+        "*": hash-pin

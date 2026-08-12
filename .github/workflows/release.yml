@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release SemVer tag (for example v0.2.0 or v0.2.0-alpha.1)
+        required: true
+        type: string
+
+# Read-only by default. The one job that publishes re-declares the write
+# scopes it needs, so nothing added to this workflow later can write to the
+# repository just by existing.
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Require main and prerelease SemVer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main || {
+            echo "Releases must run from main, got $GITHUB_REF" >&2
+            exit 1
+          }
+          [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] || {
+            echo "Release version must be SemVer prefixed with v" >&2
+            exit 1
+          }
+          if gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_VERSION already exists" >&2
+            exit 1
+          fi
+
+      - name: Require passing main pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deadline=$((SECONDS + 1200))
+          # Security is the aggregate job in security.yml, so this list does
+          # not have to name each individual scan. A known vulnerability, a
+          # leaked credential or a CodeQL finding on this commit blocks
+          # publication the same way a failing test does.
+          for check in Test Lint E2E Security; do
+            while true; do
+              read -r status conclusion <<<"$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+                --jq "([.check_runs[] | select(.name == \"$check\")] | sort_by(.started_at) | last) as \$r
+                      | \"\(\$r.status // \"missing\") \(\$r.conclusion // \"none\")\"")"
+              if [[ "$status" == "completed" ]]; then
+                [[ "$conclusion" == "success" ]] && { echo "$check succeeded"; break; }
+                echo "$check concluded $conclusion (need success)" >&2; exit 1
+              fi
+              (( SECONDS >= deadline )) && { echo "timed out waiting for $check" >&2; exit 1; }
+              echo "waiting for $check (status: $status)..."; sleep 15
+            done
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+
+      # The signing key lives in RUNNER_TEMP, not the workspace, so it can
+      # never end up in a build artifact or a git status. The registry public
+      # key is not secret (it ships embedded in the built binaries) but it
+      # comes from the same secret store as its private half so the two can
+      # never drift apart.
+      - name: Write registry signing key
+        env:
+          SIGNING_KEY_PEM: ${{ secrets.INFROUTER_REGISTRY_SIGNING_KEY }}
+        run: |
+          umask 077
+          signing_key_path="$RUNNER_TEMP/registry-signing-key.pem"
+          printf '%s' "$SIGNING_KEY_PEM" > "$signing_key_path"
+          echo "SIGNING_KEY_PATH=$signing_key_path" >> "$GITHUB_ENV"
+
+      - name: Build release artifacts
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          INFROUTER_REGISTRY_PUBLIC_KEY: ${{ secrets.INFROUTER_REGISTRY_PUBLIC_KEY }}
+          INFROUTER_REGISTRY_SIGNING_KEY: ${{ env.SIGNING_KEY_PATH }}
+        run: make release VERSION="$RELEASE_VERSION" OUTDIR=dist
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$SIGNING_KEY_PATH"
+
+      # Scans the compiled artifacts rather than the source tree, so what is
+      # verified is the shipped bytes — including the dependency versions the
+      # linker really chose — and it closes the window between the Security
+      # gate above passing and this build running. Every published binary is
+      # scanned, not just one target.
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+
+      - name: Scan release binaries for known vulnerabilities
+        run: |
+          for binary in dist/go-inference-router-*; do
+            [ -x "$binary" ] || continue
+            echo "== $binary =="
+            govulncheck -mode=binary "$binary"
+          done
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: "dist/*"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          prerelease_flag=()
+          [[ "$RELEASE_VERSION" == *-* ]] && prerelease_flag=(--prerelease)
+          gh release create "$RELEASE_VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_VERSION" \
+            --generate-notes \
+            "${prerelease_flag[@]}"

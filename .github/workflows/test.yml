@@ -1,0 +1,47 @@
+name: Test
+
+# Runs on every pull request (regardless of base) plus pushes to main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+
+      - name: go mod download
+        run: go mod download
+
+      - name: gofmt
+        run: |
+          gofmt -l . | tee /tmp/fmt.out
+          test ! -s /tmp/fmt.out
+
+      - name: Test
+        run: make test
+
+      - name: Test (race)
+        run: make test-race
+
+      # Submodules live outside the core module so its dependency-free promise
+      # holds; `go test ./...` above does not reach them.
+      - name: Test (submodules)
+        run: make test-submodules

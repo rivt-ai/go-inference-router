@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	llm "github.com/rivt-ai/go-inference-router"
 	"github.com/aws/smithy-go"
+	llm "github.com/rivt-ai/go-inference-router"
 )
 
 func (c *Client) classify(ctx context.Context, err error) error {

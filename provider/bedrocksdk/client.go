@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	llm "github.com/rivt-ai/go-inference-router"
-	"github.com/rivt-ai/go-inference-router/internal/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+	llm "github.com/rivt-ai/go-inference-router"
+	"github.com/rivt-ai/go-inference-router/internal/driver"
 )
 
 // Config controls AWS credential resolution and the Bedrock endpoint.

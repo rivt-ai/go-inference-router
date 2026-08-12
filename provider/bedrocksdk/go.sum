@@ -30,3 +30,5 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.45.4 h1:w/AryDYMjSUANSQ2uoZxJovUsMTw
 github.com/aws/aws-sdk-go-v2/service/sts v1.45.4/go.mod h1:WeBiAa67azG7Su9Vf+ChGDBLiAozJCXzdjXiPBUwtbc=
 github.com/aws/smithy-go v1.27.6 h1:0zjT8jgK3jbrTT7JJ3EE6JsMhX8JTrZ+f1sEndYDXrA=
 github.com/aws/smithy-go v1.27.6/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
+github.com/rivt-ai/go-inference-router v0.4.0 h1:jQCIqnDWsgGPoN1w8UKynp4ZrnaEH7tjzkGjZ0vcXkc=
+github.com/rivt-ai/go-inference-router v0.4.0/go.mod h1:LFv9UfQppZxAeOX8w+ZdDuYTR1FoV6L0zYpGsfudcOo=

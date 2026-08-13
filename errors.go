@@ -3,6 +3,7 @@ package inference
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Kind classifies provider-neutral failures.
@@ -27,6 +28,11 @@ const (
 	KindStalled Kind = "stalled"
 	// KindToolCallParse indicates malformed tool-call arguments.
 	KindToolCallParse Kind = "tool_call_parse"
+	// KindEmptyResponse indicates a well-formed exchange that carried no
+	// generation: no choices, or a stream that ended without a chunk. It is
+	// distinct from KindProtocol, where the provider sent something the
+	// adapter could not read at all.
+	KindEmptyResponse Kind = "empty_response"
 	// KindCanceled indicates caller cancellation.
 	KindCanceled Kind = "canceled"
 )
@@ -37,7 +43,11 @@ type Error struct {
 	Provider string `json:"provider,omitempty"`
 	Status   int    `json:"status,omitempty"`
 	Message  string `json:"message,omitempty"`
-	Err      error  `json:"-"`
+	// RetryAfter is how long the provider asked the caller to wait before
+	// retrying, when it said so. Zero means no hint was given, and callers
+	// should fall back to their own backoff.
+	RetryAfter time.Duration `json:"retry_after,omitempty"`
+	Err        error         `json:"-"`
 }
 
 func (e *Error) Error() string {

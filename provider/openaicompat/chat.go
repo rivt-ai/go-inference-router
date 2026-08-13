@@ -29,7 +29,7 @@ func (c *Client) Chat(ctx context.Context, req inference.Request) (*inference.Re
 		return nil, c.base.Errf(inference.KindProtocol, resp.StatusCode, "malformed completion body", err)
 	}
 	if len(body.Choices) == 0 {
-		return nil, c.base.Errf(inference.KindProtocol, resp.StatusCode, "completion contained no choices", nil)
+		return nil, c.base.Errf(inference.KindEmptyResponse, resp.StatusCode, "completion contained no choices", nil)
 	}
 	return decodeResponse(body), nil
 }
@@ -68,7 +68,7 @@ func (c *Client) ChatStream(
 		// A well-formed provider always sends at least one chunk. Ending the
 		// stream without any means an empty or malformed body; reporting
 		// success here would surface as a phantom "model said nothing" turn.
-		return nil, c.base.Errf(inference.KindProtocol, resp.StatusCode, "stream ended without any chunks", nil)
+		return nil, c.base.Errf(inference.KindEmptyResponse, resp.StatusCode, "stream ended without any chunks", nil)
 	}
 	if err := acc.flush(onEvent); err != nil {
 		return nil, err

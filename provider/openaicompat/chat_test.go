@@ -180,13 +180,13 @@ func TestSchemaFormatIsEncoded(t *testing.T) {
 	}
 }
 
-func TestChatEmptyChoicesIsProtocolError(t *testing.T) {
+func TestChatEmptyChoicesIsEmptyResponse(t *testing.T) {
 	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"choices":[]}`)
 	})
 	_, err := client.Chat(context.Background(), inference.Request{Model: "m"})
-	if !inference.IsKind(err, inference.KindProtocol) {
-		t.Fatalf("kind = %q, want protocol (err: %v)", inference.KindOf(err), err)
+	if !inference.IsKind(err, inference.KindEmptyResponse) {
+		t.Fatalf("kind = %q, want empty_response (err: %v)", inference.KindOf(err), err)
 	}
 }
 
@@ -267,13 +267,13 @@ func TestChatStreamAccumulatesTextAndToolCalls(t *testing.T) {
 	}
 }
 
-func TestChatStreamWithoutChunksIsProtocolError(t *testing.T) {
+func TestChatStreamWithoutChunksIsEmptyResponse(t *testing.T) {
 	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	})
 	_, err := client.ChatStream(context.Background(), inference.Request{Model: "m"}, nil)
-	if !inference.IsKind(err, inference.KindProtocol) {
-		t.Fatalf("kind = %q, want protocol (err: %v)", inference.KindOf(err), err)
+	if !inference.IsKind(err, inference.KindEmptyResponse) {
+		t.Fatalf("kind = %q, want empty_response (err: %v)", inference.KindOf(err), err)
 	}
 }
 

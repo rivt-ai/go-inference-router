@@ -54,6 +54,7 @@ if err != nil {
     switch {
     case llm.IsKind(err, llm.KindAuth):           // fix credentials, do not retry
     case llm.IsKind(err, llm.KindToolCallParse):  // feed back as a tool result
+    case llm.IsKind(err, llm.KindEmptyResponse):  // provider generated nothing
     case llm.Retryable(err):                      // rate_limit/unavailable/transport/stalled
     default:
     }
@@ -61,6 +62,30 @@ if err != nil {
 ```
 
 Never match on error text. `Kind` is the stable contract.
+
+`KindEmptyResponse` means a well-formed exchange carried no generation — no
+choices, or a stream that ended without a chunk. It is deliberately separate
+from `KindProtocol`, which means the provider sent something unreadable. Hosts
+usually want to nudge and re-ask on the first and fail loudly on the second.
+
+### Backing off
+
+`Retryable(err)` reports whether retrying *may* help; it does not decide
+whether retrying is *safe*. A host that must not pay for a second generation,
+or that has already streamed part of a response to a user, should narrow that
+set itself.
+
+When a provider says how long to wait, the delay is on the error:
+
+```go
+var typed *llm.Error
+if errors.As(err, &typed) && typed.RetryAfter > 0 {
+    wait(typed.RetryAfter) // provider asked for this
+}
+```
+
+`RetryAfter` is zero when the provider sent no hint, in which case a caller
+should fall back to its own backoff schedule.
 
 ### Probing what a provider can do
 

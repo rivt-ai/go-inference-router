@@ -26,6 +26,7 @@ func ErrorDataOf(err error) ErrorData {
 		data.Provider = typed.Provider
 		data.Status = typed.Status
 		data.Message = typed.Message
+		data.RetryAfter = typed.RetryAfter
 	}
 	return data
 }

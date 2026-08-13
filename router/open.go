@@ -2,8 +2,6 @@ package router
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/base64"
 	"errors"
 	"io"
 	"os"
@@ -14,17 +12,24 @@ import (
 	"github.com/rivt-ai/go-inference-router/router/install"
 )
 
-// registryURL and registryPublicKey are the release trust root. The public key
-// is injected into release builds with
-// -ldflags "-X github.com/rivt-ai/go-inference-router/router.registryPublicKey=..."
+// registryURL and registryPublicKeys are the release trust root. The keys are
+// injected into release builds with
+// -ldflags "-X github.com/rivt-ai/go-inference-router/router.registryPublicKeys=..."
+//
+// registryPublicKeys is a comma-separated list rather than a single key so the
+// signing key can be rotated: a build trusts both the outgoing and incoming key
+// during an overlap window, and the old one is dropped from later builds. A
+// binary can only ever trust keys compiled into it, so a single-key trust root
+// makes both rotation and compromise recovery impossible for installs already
+// in the wild.
 //
 // They live here rather than in the command so that the shipped binary and an
 // embedding host share one trust policy instead of each deriving its own. A
 // host that guessed wrong here would silently enable or disable execution of
 // unmanaged binaries found on PATH.
 var (
-	registryURL       = "https://github.com/rivt-ai/go-inference-router/releases/latest/download/providers.json"
-	registryPublicKey string
+	registryURL        = "https://github.com/rivt-ai/go-inference-router/releases/latest/download/providers.json"
+	registryPublicKeys string
 )
 
 // Options configures Open.
@@ -143,30 +148,42 @@ func (r *Router) Reload(ctx context.Context) (config.Config, error) {
 // root exists at all — the latter is the development case, where refusing every
 // unsigned provider would leave no way to run one.
 func PathLookupAllowed(cfg config.Config) bool {
-	return cfg.Registry.AllowPathLookup || registryPublicKey == "" && cfg.Registry.PublicKey == ""
+	return cfg.Registry.AllowPathLookup || trustRoot(cfg) == ""
+}
+
+// trustRoot returns the configured trust root, preferring an explicit
+// configuration override over the compiled-in keys. Overriding replaces the
+// release keys outright rather than adding to them, so an operator pointing at
+// their own registry does not keep trusting ours as well.
+func trustRoot(cfg config.Config) string {
+	if configured := cfg.Registry.TrustedKeys(); configured != "" {
+		return configured
+	}
+	return registryPublicKeys
 }
 
 // NewInstaller builds the provider installer for a configuration, applying the
 // release trust root unless the configuration overrides it. It returns nil when
 // no public key is available, which disables managed installation.
 func NewInstaller(cfg config.Config, observer llm.Observer) (*install.Installer, error) {
-	url, publicKey := registryURL, registryPublicKey
+	url := registryURL
 	if cfg.Registry.URL != "" {
 		url = cfg.Registry.URL
 	}
-	if cfg.Registry.PublicKey != "" {
-		publicKey = cfg.Registry.PublicKey
-	}
-	if publicKey == "" {
+	root := trustRoot(cfg)
+	if root == "" {
 		return nil, nil
 	}
-	decoded, err := base64.StdEncoding.DecodeString(publicKey)
-	if err != nil || len(decoded) != ed25519.PublicKeySize {
-		return nil, errors.New("registry public key must be base64-encoded Ed25519")
+	keys, err := install.ParseTrustedKeys(root)
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, nil
 	}
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return nil, err
 	}
-	return install.New(url, decoded, filepath.Join(dir, "go-inference-router", "providers"), nil, observer), nil
+	return install.New(url, keys, filepath.Join(dir, "go-inference-router", "providers"), nil, observer), nil
 }

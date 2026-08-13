@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"reflect"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -88,7 +89,7 @@ func (r *Router) Apply(ctx context.Context, next config.Config) error {
 			return err
 		}
 	}
-	if next.Registry != r.cfg.Registry {
+	if !next.Registry.Equal(r.cfg.Registry) {
 		r.mu.Unlock()
 		err := &llm.Error{Kind: llm.KindInvalidRequest, Provider: "router", Message: "registry changes require a Router restart"}
 		r.finished(ctx, started, err, llm.Usage{}, 0)
@@ -536,6 +537,7 @@ func routerClosedError() error {
 
 func cloneConfig(cfg config.Config) config.Config {
 	cloned := cfg
+	cloned.Registry.PublicKeys = slices.Clone(cfg.Registry.PublicKeys)
 	cloned.Providers = make(map[string]config.Provider, len(cfg.Providers))
 	for id, definition := range cfg.Providers {
 		definition.Headers = maps.Clone(definition.Headers)

@@ -7,9 +7,9 @@ import (
 )
 
 func TestPathLookupRequiresOptInWithTrustedRegistry(t *testing.T) {
-	previous := registryPublicKey
-	registryPublicKey = "compiled-key"
-	t.Cleanup(func() { registryPublicKey = previous })
+	previous := registryPublicKeys
+	registryPublicKeys = "compiled-key"
+	t.Cleanup(func() { registryPublicKeys = previous })
 	if PathLookupAllowed(config.Config{}) {
 		t.Fatal("compiled registry key allowed unmanaged PATH providers")
 	}
@@ -19,9 +19,9 @@ func TestPathLookupRequiresOptInWithTrustedRegistry(t *testing.T) {
 }
 
 func TestPathLookupAllowedWithoutAnyTrustRoot(t *testing.T) {
-	previous := registryPublicKey
-	registryPublicKey = ""
-	t.Cleanup(func() { registryPublicKey = previous })
+	previous := registryPublicKeys
+	registryPublicKeys = ""
+	t.Cleanup(func() { registryPublicKeys = previous })
 	if !PathLookupAllowed(config.Config{}) {
 		t.Fatal("development build without a trust root refused PATH providers")
 	}

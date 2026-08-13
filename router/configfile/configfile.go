@@ -47,7 +47,7 @@ func Load(userPath, workspacePath, explicit string) (config.Config, error) { //n
 		if cfg.Version == 0 {
 			continue
 		}
-		if cfg.Registry.URL != "" || cfg.Registry.PublicKey != "" || cfg.Registry.AllowPathLookup {
+		if cfg.Registry.Configured() {
 			merged.Registry = cfg.Registry
 		}
 		for id, provider := range cfg.Providers {

@@ -6,7 +6,10 @@
 // router/configfile.
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Version is the only supported configuration version.
 const Version = 1
@@ -21,9 +24,53 @@ type Config struct {
 
 // Registry configures a signed Provider Process registry.
 type Registry struct {
-	URL             string `yaml:"url,omitempty"`
-	PublicKey       string `yaml:"public_key,omitempty"`
-	AllowPathLookup bool   `yaml:"allow_path_lookup,omitempty"`
+	URL string `yaml:"url,omitempty"`
+	// PublicKey names a single trusted key.
+	//
+	// Deprecated: use PublicKeys, which can name more than one so a signing
+	// key can be rotated with an overlap window. PublicKey is still read, and
+	// merges with PublicKeys when both are set.
+	PublicKey string `yaml:"public_key,omitempty"`
+	// PublicKeys lists every base64 Ed25519 key whose signature is accepted
+	// for this registry's manifest.
+	PublicKeys      []string `yaml:"public_keys,omitempty"`
+	AllowPathLookup bool     `yaml:"allow_path_lookup,omitempty"`
+}
+
+// Configured reports whether a registry section sets anything at all, so a
+// merge can tell "absent" from "present but empty" without naming each field
+// at the call site — and without a new field being silently ignored.
+func (r Registry) Configured() bool {
+	return r.URL != "" || r.TrustedKeys() != "" || r.AllowPathLookup
+}
+
+// Equal reports whether two registry settings are the same. Registry settings
+// are bootstrap-only, so Apply compares them to reject a change that would
+// need a restart; PublicKeys makes the struct uncomparable, so the check is
+// spelled out here rather than with !=.
+func (r Registry) Equal(other Registry) bool {
+	if r.URL != other.URL || r.PublicKey != other.PublicKey ||
+		r.AllowPathLookup != other.AllowPathLookup || len(r.PublicKeys) != len(other.PublicKeys) {
+		return false
+	}
+	for index, key := range r.PublicKeys {
+		if key != other.PublicKeys[index] {
+			return false
+		}
+	}
+	return true
+}
+
+// TrustedKeys returns the configured keys as one comma-separated list, or the
+// empty string when the configuration names none. Both the singular and plural
+// fields are read so an existing configuration keeps working unchanged.
+func (r Registry) TrustedKeys() string {
+	keys := make([]string, 0, len(r.PublicKeys)+1)
+	if r.PublicKey != "" {
+		keys = append(keys, r.PublicKey)
+	}
+	keys = append(keys, r.PublicKeys...)
+	return strings.Join(keys, ",")
 }
 
 // Provider is one named Provider Definition.

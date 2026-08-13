@@ -453,8 +453,32 @@ Registry URLs must be HTTPS, or HTTP only for loopback. Provider and version
 strings are validated as safe identifiers before touching the filesystem, so a
 hostile manifest cannot traverse out of the cache. Manifests are size-capped.
 
-Trust is configurable: release builds embed a public key, and private registries
-set `registry.url` and `registry.public_key`. When a trusted key is configured,
+### Trusted keys and rotation
+
+A shipped binary can only trust keys compiled into it, so the trust root is a
+**set** of keys rather than one. With a single key, the day it changes every
+binary already installed rejects every new manifest — which also means a key
+compromise is unrecoverable for existing installs.
+
+The `.sig` sidecar therefore carries one signature per signing key, each labelled
+with a key ID (the first four bytes of the public key's SHA-256, hex). A verifier
+checks only the signature naming a key it holds. IDs are *derived* by signer and
+verifier independently rather than assigned, so a signature cannot be relabelled
+to get itself checked against a key it was not made with.
+
+A rotation is then: sign one release with both the outgoing and incoming key and
+ship builds trusting both; binaries from before the rotation verify the old
+signature, later ones the new; once no supported build trusts the old key alone,
+drop it. `INFROUTER_REGISTRY_SIGNING_KEY` and `INFROUTER_REGISTRY_PUBLIC_KEY`
+accept comma-separated lists, in matching order, for the overlap release.
+
+Bare-signature sidecars from before this format are still accepted and tried
+against every trusted key, so the format change does not itself orphan installs.
+
+Trust is configurable: release builds embed public keys, and private registries
+set `registry.url` and `registry.public_keys` (`registry.public_key` remains
+accepted for one key). A configured key **replaces** the release trust root
+rather than adding to it. When a trusted key is configured,
 unmanaged `go-inference-router-provider-*` binaries on `PATH` are **disabled**
 unless `registry.allow_path_lookup: true` is explicit. With no key configured at
 all, path lookup is permitted — that is the development posture. See ADR 0006.

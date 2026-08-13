@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rivt-ai/go-inference-router"
 	"github.com/rivt-ai/go-inference-router/internal/driver"
@@ -41,7 +43,21 @@ func (c *Client) httpError(resp *http.Response) error {
 	if strings.Contains(strings.ToLower(message), toolCallParseMarker) {
 		kind = inference.KindToolCallParse
 	}
-	return c.base.Errf(kind, resp.StatusCode, message, nil)
+	err := c.base.Errf(kind, resp.StatusCode, message, nil)
+	err.RetryAfter = retryAfter(resp.Header.Get("Retry-After"))
+	return err
+}
+
+// retryAfter reads the delay-seconds form of the Retry-After header, which is
+// what OpenAI-compatible services send on a 429. The HTTP-date form is
+// deliberately not parsed: guessing wrong would be worse than reporting no
+// hint, and a caller with no hint falls back to its own backoff.
+func retryAfter(value string) time.Duration {
+	seconds, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func errorMessage(body []byte) string {

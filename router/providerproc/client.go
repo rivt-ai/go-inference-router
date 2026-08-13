@@ -284,7 +284,14 @@ func (c *Client) call(ctx context.Context, method string, request, response any)
 	}
 	var data llmv1.ErrorData
 	if len(rpcErr.Data) != 0 && json.Unmarshal(rpcErr.Data, &data) == nil {
-		return &llm.Error{Kind: data.Kind, Provider: data.Provider, Status: data.Status, Message: data.Message, Err: rpcErr}
+		return &llm.Error{
+			Kind:       data.Kind,
+			Provider:   data.Provider,
+			Status:     data.Status,
+			Message:    data.Message,
+			RetryAfter: data.RetryAfter,
+			Err:        rpcErr,
+		}
 	}
 	return &llm.Error{Kind: llm.KindProtocol, Provider: c.Name(), Message: rpcErr.Message, Err: rpcErr}
 }

@@ -5,6 +5,7 @@ package llmv1
 
 import (
 	"encoding/json"
+	"time"
 
 	llm "github.com/rivt-ai/go-inference-router"
 )
@@ -292,4 +293,8 @@ type ErrorData struct {
 	Provider string   `json:"provider,omitempty"`
 	Status   int      `json:"status,omitempty"`
 	Message  string   `json:"message,omitempty"`
+	// RetryAfter mirrors llm.Error.RetryAfter so a host driving a Provider
+	// Process over llm.v1 sees the same throttling hint an in-process host
+	// gets from the Go type.
+	RetryAfter time.Duration `json:"retry_after,omitempty"`
 }

@@ -3,10 +3,8 @@ package install
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -29,7 +27,10 @@ import (
 
 const (
 	manifestLimit = 4 << 20
-	planLifetime  = 10 * time.Minute
+	// sidecarLimit bounds the signature file. A Sigstore bundle carries a
+	// certificate and log entry, so it is larger than a bare signature.
+	sidecarLimit = 1 << 20
+	planLifetime = 10 * time.Minute
 )
 
 // Manifest is the signed registry payload.
@@ -57,23 +58,26 @@ type pendingPlan struct {
 
 // Installer plans, verifies, and caches Provider Process artifacts.
 type Installer struct {
-	registry  string
-	publicKey ed25519.PublicKey
-	cache     string
-	client    *http.Client
-	observer  llm.Observer
-	planMu    sync.Mutex
-	cacheMu   sync.RWMutex
-	plans     map[string]pendingPlan
+	registry string
+	verifier Verifier
+	cache    string
+	client   *http.Client
+	observer llm.Observer
+	planMu   sync.Mutex
+	cacheMu  sync.RWMutex
+	plans    map[string]pendingPlan
 }
 
 // New creates an Installer rooted at cache.
-func New(registry string, publicKey ed25519.PublicKey, cache string, client *http.Client, observer llm.Observer) *Installer {
+//
+// verifier authenticates the registry manifest; see Verifier for why this is a
+// choice rather than a fixed key check.
+func New(registry string, verifier Verifier, cache string, client *http.Client, observer llm.Observer) *Installer {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &Installer{
-		registry: registry, publicKey: publicKey, cache: cache, client: client,
+		registry: registry, verifier: verifier, cache: cache, client: client,
 		observer: observer, plans: map[string]pendingPlan{},
 	}
 }
@@ -301,20 +305,22 @@ func (i *Installer) locateExact(provider, version string, required bool) (string
 }
 
 func (i *Installer) manifest(ctx context.Context) (Manifest, error) {
-	if !secureURL(i.registry) || len(i.publicKey) != ed25519.PublicKeySize {
-		return Manifest{}, errors.New("provider registry URL or public key is invalid")
+	if !secureURL(i.registry) || i.verifier == nil {
+		return Manifest{}, errors.New("provider registry URL or verifier is invalid")
 	}
 	body, err := i.fetch(ctx, i.registry, manifestLimit)
 	if err != nil {
 		return Manifest{}, err
 	}
-	signatureText, err := i.fetch(ctx, i.registry+".sig", 4096)
+	sidecar, err := i.fetch(ctx, i.registry+i.verifier.SidecarSuffix(), sidecarLimit)
 	if err != nil {
 		return Manifest{}, err
 	}
-	signature, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(signatureText)))
-	if err != nil || !ed25519.Verify(i.publicKey, body, signature) {
-		return Manifest{}, &llm.Error{Kind: llm.KindProtocol, Provider: "registry", Message: "registry signature verification failed"}
+	if err := i.verifier.VerifyManifest(ctx, body, sidecar); err != nil {
+		return Manifest{}, &llm.Error{
+			Kind: llm.KindProtocol, Provider: "registry",
+			Message: "registry signature verification failed: " + err.Error(), Err: err,
+		}
 	}
 	var manifest Manifest
 	if err := json.Unmarshal(body, &manifest); err != nil || manifest.Version != 1 {

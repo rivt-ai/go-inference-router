@@ -56,3 +56,17 @@ for target in "${TARGETS[@]}"; do
 done
 printf ']}' >> "$manifest"
 openssl pkeyutl -sign -rawin -inkey "$SIGNING_KEY" -in "$manifest" | base64 -w0 > "$manifest.sig"
+
+# Keyless signing is additive: the Ed25519 sidecar above is still produced, so
+# binaries carrying the compiled-in key keep verifying while any host that has
+# opted in to Sigstore verification reads the bundle instead. Publishing only
+# the bundle would strand every binary already installed.
+#
+# Requires cosign and an ambient OIDC token; in GitHub Actions that is the
+# workflow's id-token permission, which release.yml already requests for build
+# attestation. No key material is involved.
+if [[ "${INFROUTER_SIGSTORE:-0}" == "1" ]]; then
+  cosign sign-blob --yes \
+    --bundle "$manifest.sigstore.json" \
+    "$manifest" > /dev/null
+fi

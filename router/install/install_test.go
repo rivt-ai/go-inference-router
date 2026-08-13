@@ -49,7 +49,7 @@ func TestSignedPlanRequiresApprovalAndInstallsAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installer := install.New(server.URL+"/registry.json", public, t.TempDir(), server.Client(), nil)
+	installer := install.New(server.URL+"/registry.json", install.NewKeyVerifier(public), t.TempDir(), server.Client(), nil)
 	plan, err := installer.Plan(context.Background(), "openai", "")
 	if err != nil || plan.Provider != "openai" || plan.Version != "v1.2.3" {
 		t.Fatalf("Plan = %#v, %v", plan, err)
@@ -91,7 +91,7 @@ func TestLocateRejectsTamperedInstalledBinary(t *testing.T) {
 		OS: runtime.GOOS, Arch: runtime.GOARCH, URL: server.URL + "/provider",
 		Size: int64(len(artifact)), SHA256: hex.EncodeToString(digest[:]),
 	}}})
-	installer := install.New(server.URL+"/registry.json", public, t.TempDir(), server.Client(), nil)
+	installer := install.New(server.URL+"/registry.json", install.NewKeyVerifier(public), t.TempDir(), server.Client(), nil)
 	plan, err := installer.Plan(context.Background(), "openai", "v1")
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestManifestSignatureIsRequired(t *testing.T) {
 		_, _ = w.Write([]byte(`{"version":1,"artifacts":[]}`))
 	}))
 	defer server.Close()
-	installer := install.New(server.URL, public, t.TempDir(), server.Client(), nil)
+	installer := install.New(server.URL, install.NewKeyVerifier(public), t.TempDir(), server.Client(), nil)
 	if _, err := installer.Plan(context.Background(), "openai", ""); err == nil {
 		t.Fatal("unsigned manifest was accepted")
 	}
@@ -244,7 +244,7 @@ func testInstaller(t *testing.T, versions ...string) (*install.Installer, string
 		t.Fatal(err)
 	}
 	cache := t.TempDir()
-	return install.New(server.URL+"/registry.json", public, cache, server.Client(), nil), cache
+	return install.New(server.URL+"/registry.json", install.NewKeyVerifier(public), cache, server.Client(), nil), cache
 }
 
 func containsVersion(path, version string) bool {

@@ -64,6 +64,20 @@ type Options struct {
 	// a message naming this field.
 	Secrets SecretResolver
 
+	// RegistryVerifier authenticates the provider registry manifest.
+	//
+	// Deliberately not defaulted beyond the compiled-in key, for the same
+	// reason as Secrets: keyless verification lives in router/verify/sigstore
+	// and importing it costs sigstore-go and its transitive dependencies,
+	// which is a larger surface than this module carries. A host that wants it
+	// opts in with sigstore.NewVerifier(...), which is also the point at which
+	// it accepts those dependencies and decides it can reach a transparency
+	// log at verify time.
+	//
+	// Leaving this nil keeps the Ed25519 trust root: the release key compiled
+	// into the binary, or registry.public_key from configuration.
+	RegistryVerifier install.Verifier
+
 	// Observer receives lifecycle, request, and install observations.
 	Observer llm.Observer
 
@@ -84,13 +98,18 @@ func Open(ctx context.Context, options Options) (*Router, error) {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
-	installer, err := NewInstaller(cfg, options.Observer)
+	installer, err := NewInstaller(cfg, options.RegistryVerifier, options.Observer)
 	if err != nil {
 		return nil, err
 	}
+	// A trust root exists exactly when an installer was built, which now
+	// includes a host-supplied verifier and not only a compiled-in key. Asking
+	// the installer rather than re-deriving from the key would otherwise
+	// re-enable unmanaged PATH binaries for a host that opted in to keyless
+	// verification — the opposite of what opting in means.
 	source := DefaultSource{
 		Secrets: options.Secrets, Stderr: stderr, Observer: options.Observer,
-		AllowPathLookup: PathLookupAllowed(cfg),
+		AllowPathLookup: cfg.Registry.AllowPathLookup || installer == nil,
 	}
 	if installer != nil {
 		source.Locator = installer
@@ -147,13 +166,36 @@ func PathLookupAllowed(cfg config.Config) bool {
 }
 
 // NewInstaller builds the provider installer for a configuration, applying the
-// release trust root unless the configuration overrides it. It returns nil when
-// no public key is available, which disables managed installation.
-func NewInstaller(cfg config.Config, observer llm.Observer) (*install.Installer, error) {
-	url, publicKey := registryURL, registryPublicKey
+// release trust root unless the configuration or verifier overrides it. It
+// returns nil when no trust root is available at all, which disables managed
+// installation.
+//
+// A supplied verifier wins over the key-based default: a host that opted in to
+// keyless verification has made a deliberate trust decision, and silently
+// preferring a compiled-in key over it would defeat that.
+func NewInstaller(cfg config.Config, verifier install.Verifier, observer llm.Observer) (*install.Installer, error) {
+	url := registryURL
 	if cfg.Registry.URL != "" {
 		url = cfg.Registry.URL
 	}
+	if verifier == nil {
+		keyed, err := keyVerifier(cfg)
+		if err != nil || keyed == nil {
+			return nil, err
+		}
+		verifier = keyed
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return nil, err
+	}
+	return install.New(url, verifier, filepath.Join(dir, "go-inference-router", "providers"), nil, observer), nil
+}
+
+// keyVerifier builds the Ed25519 verifier from the configured or compiled-in
+// key, or reports nil when neither exists.
+func keyVerifier(cfg config.Config) (install.Verifier, error) {
+	publicKey := registryPublicKey
 	if cfg.Registry.PublicKey != "" {
 		publicKey = cfg.Registry.PublicKey
 	}
@@ -164,9 +206,5 @@ func NewInstaller(cfg config.Config, observer llm.Observer) (*install.Installer,
 	if err != nil || len(decoded) != ed25519.PublicKeySize {
 		return nil, errors.New("registry public key must be base64-encoded Ed25519")
 	}
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return nil, err
-	}
-	return install.New(url, decoded, filepath.Join(dir, "go-inference-router", "providers"), nil, observer), nil
+	return install.NewKeyVerifier(decoded), nil
 }

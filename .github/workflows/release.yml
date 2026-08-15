@@ -101,11 +101,19 @@ jobs:
           printf '%s' "$SIGNING_KEY_PEM" > "$signing_key_path"
           echo "SIGNING_KEY_PATH=$signing_key_path" >> "$GITHUB_ENV"
 
+      # Keyless signing needs cosign; the OIDC token it exchanges for a
+      # short-lived certificate comes from the id-token permission this job
+      # already holds for build attestation. Nothing here handles key material.
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+
       - name: Build release artifacts
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           INFROUTER_REGISTRY_PUBLIC_KEY: ${{ secrets.INFROUTER_REGISTRY_PUBLIC_KEY }}
           INFROUTER_REGISTRY_SIGNING_KEY: ${{ env.SIGNING_KEY_PATH }}
+          # Additive: the Ed25519 sidecar is still produced alongside the
+          # bundle, so binaries trusting the compiled-in key keep working.
+          INFROUTER_SIGSTORE: "1"
         run: make release VERSION="$RELEASE_VERSION" OUTDIR=dist
 
       - name: Remove signing key

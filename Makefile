@@ -1,4 +1,4 @@
-.PHONY: test test-race test-submodules build e2e lint lint-ci lint-submodules verify fmt tidy release sync-module-versions check-module-versions
+.PHONY: test test-race test-submodules build e2e sigstore-e2e lint lint-ci lint-submodules verify fmt tidy release sync-module-versions check-module-versions
 
 CUSTOM_LINT ?= ./custom-golangci-lint
 CUSTOM_LINT_ABS := $(abspath $(CUSTOM_LINT))
@@ -37,6 +37,14 @@ build:
 e2e:
 	eval "$$(./scripts/provision-e2e-llamacpp.sh)" && \
 		go test -tags=e2e ./e2e -count=1 -timeout=15m -v
+
+# Verifies a real cosign bundle with the real verifier. Needs an ambient OIDC
+# token, so it runs in CI (.github/workflows/sigstore-e2e.yml) rather than as
+# part of `verify`; locally it needs the SIGSTORE_E2E_* fixtures that workflow
+# builds. The test fails rather than skips when they are missing — a signing
+# test that quietly does not run looks exactly like one that passed.
+sigstore-e2e:
+	cd router/verify/sigstore && go test -tags=sigstoree2e -count=1 -timeout=10m -v ./...
 
 # lint uses the custom build (which carries the goclocbudget plugin) when it is
 # present, and falls back to a stock golangci-lint otherwise — that fallback

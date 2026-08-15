@@ -100,10 +100,24 @@ behind this same seam, and adopting one does not waste the other.
 baked into shipped binaries, so it is cheapest to change while there are no
 users to strand.
 
+**The accept path is tested against a real bundle, not a fixture.** Unit tests
+here can only cover rejection: producing a genuine bundle needs cosign and an
+OIDC token. A verifier that refused everything would therefore pass the suite
+and fail on a user's machine at install time. `.github/workflows/sigstore-e2e.yml`
+signs a manifest with the same `cosign sign-blob` invocation the release script
+uses, generates a trusted root, and verifies it with the real verifier. It runs
+on pushes to main and weekly — the schedule is the part that matters, because a
+trusted root goes stale by the calendar rather than by a code change, and
+nothing else would notice. It cannot run on pull requests from forks, which are
+not granted `id-token: write`.
+
 ## Open
 
 - Can the installer depend on Sigstore verification at *verify* time in every
   deployment we care about? Offline verification against a pinned trusted root
   avoids a network call, but the trusted root still has to be refreshed.
+- The trusted root shipped to hosts is still supplied by the caller. The e2e
+  job proves a *freshly generated* root verifies; it does not yet assert that
+  the bytes a release embeds are current.
 - Should keyless become the default once a registry is hosted, with the key path
   kept only for private registries?

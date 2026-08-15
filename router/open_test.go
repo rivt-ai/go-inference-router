@@ -1,9 +1,11 @@
 package router
 
 import (
+	"crypto/ed25519"
 	"testing"
 
 	"github.com/rivt-ai/go-inference-router/router/config"
+	"github.com/rivt-ai/go-inference-router/router/install"
 )
 
 func TestPathLookupRequiresOptInWithTrustedRegistry(t *testing.T) {
@@ -24,6 +26,30 @@ func TestPathLookupAllowedWithoutAnyTrustRoot(t *testing.T) {
 	t.Cleanup(func() { registryPublicKey = previous })
 	if !PathLookupAllowed(config.Config{}) {
 		t.Fatal("development build without a trust root refused PATH providers")
+	}
+}
+
+// A host can establish a registry trust root without any compiled-in key. When
+// it does, unmanaged PATH providers must stay refused: judging the trust root
+// from the key alone would silently re-enable exactly the unsigned binaries the
+// host opted in to verifying.
+func TestPathLookupRefusedWhenInstallerExistsWithoutCompiledKey(t *testing.T) {
+	previous := registryPublicKey
+	registryPublicKey = ""
+	t.Cleanup(func() { registryPublicKey = previous })
+	key, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := install.New("https://example.invalid/registry.json", key, t.TempDir(), nil, nil)
+	if pathLookupAllowed(config.Config{}, installer) {
+		t.Fatal("a configured trust root without a compiled-in key allowed unmanaged PATH providers")
+	}
+	if !pathLookupAllowed(config.Config{Registry: config.Registry{AllowPathLookup: true}}, installer) {
+		t.Fatal("explicit PATH lookup opt-in was ignored")
+	}
+	if !pathLookupAllowed(config.Config{}, nil) {
+		t.Fatal("a build with no trust root at all refused PATH providers")
 	}
 }
 

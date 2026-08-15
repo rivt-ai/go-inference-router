@@ -90,7 +90,7 @@ func Open(ctx context.Context, options Options) (*Router, error) {
 	}
 	source := DefaultSource{
 		Secrets: options.Secrets, Stderr: stderr, Observer: options.Observer,
-		AllowPathLookup: PathLookupAllowed(cfg),
+		AllowPathLookup: pathLookupAllowed(cfg, installer),
 	}
 	if installer != nil {
 		source.Locator = installer
@@ -137,13 +137,27 @@ func (r *Router) Reload(ctx context.Context) (config.Config, error) {
 }
 
 // PathLookupAllowed reports whether unmanaged go-inference-router-provider-*
-// binaries found on PATH may be executed.
+// binaries found on PATH may be executed, judging by the configured and
+// compiled-in registry keys alone.
 //
 // Lookup is permitted when the operator asks for it, or when no registry trust
 // root exists at all — the latter is the development case, where refusing every
 // unsigned provider would leave no way to run one.
+//
+// Open does not use this: a key is one way to establish a trust root, not the
+// only one, so Open asks whether an installer was actually built. See
+// pathLookupAllowed.
 func PathLookupAllowed(cfg config.Config) bool {
 	return cfg.Registry.AllowPathLookup || registryPublicKey == "" && cfg.Registry.PublicKey == ""
+}
+
+// pathLookupAllowed is the decision Open makes. A trust root exists exactly
+// when an installer was built, which is a broader question than "is there a
+// public key?" — deriving it from the key would silently re-enable unsigned
+// PATH binaries for any host that establishes verification some other way,
+// the opposite of what opting in to verification means.
+func pathLookupAllowed(cfg config.Config, installer *install.Installer) bool {
+	return cfg.Registry.AllowPathLookup || installer == nil
 }
 
 // NewInstaller builds the provider installer for a configuration, applying the

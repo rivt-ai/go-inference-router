@@ -93,3 +93,21 @@ type stubVerifier struct {
 func (s stubVerifier) SidecarSuffix() string { return s.suffix }
 
 func (s stubVerifier) VerifyManifest(context.Context, []byte, []byte) error { return s.err }
+
+// TestSigstoreShapeSatisfiesVerifier guards the seam from the side that
+// depends on it. router/verify/sigstore cannot assert `var _ Verifier` itself
+// without importing this package, which would make it depend on the router
+// module instead of the root module, so the shape is restated here. If Verifier
+// gains or changes a method, this fails to compile and names the module that
+// must be updated with it.
+func TestSigstoreShapeSatisfiesVerifier(t *testing.T) {
+	var _ Verifier = sigstoreShape{}
+}
+
+// sigstoreShape mirrors the exported method set of
+// github.com/rivt-ai/go-inference-router/router/verify/sigstore.Verifier.
+type sigstoreShape struct{}
+
+func (sigstoreShape) SidecarSuffix() string { return ".sigstore.json" }
+
+func (sigstoreShape) VerifyManifest(context.Context, []byte, []byte) error { return nil }

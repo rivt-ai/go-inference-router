@@ -63,6 +63,25 @@ Sigstore rotates its own roots. That is release engineering, not runtime.
 dependency footprint is large. Confining it to its own module bounds the blast
 radius to hosts that ask for it.
 
+**The module stays a leaf, and that is what makes it publishable.** The seam's
+methods take only stdlib types, so Go satisfies `install.Verifier` implicitly
+and an implementation never needs to import it. The one thing both sides must
+agree on is the identity of `ErrUnverified`, which distinguishes "not authentic"
+from "could not check". That sentinel therefore lives in the **root** module —
+which has no dependencies — and `install.ErrUnverified` aliases it, so the
+identity `errors.Is` compares is unchanged.
+
+Had it stayed in `router/install`, this module would have required *router*
+rather than the root: the repository's first depth-2 module, and one that
+`check-module-versions` and `release-modules.yml` cannot publish, since both
+assume every published module pins the root at the release version and tags
+them all at a single commit. A module whose `go.sum` can only be correct after
+a *sibling's* tag exists does not fit a one-pass tag job. Naming the sentinel
+from the root instead keeps this module structurally identical to the SDK
+adapters, so it publishes through the existing flow with no new release stage.
+The cost is that the compile-time `var _ install.Verifier` assertion cannot live
+here; the contract is asserted from `router/install`'s tests instead.
+
 **Policy must be pinned, and this is the sharp edge.** Verifying a bundle
 without pinning an identity proves only that *somebody* signed it and logged it
 — anyone can obtain a certificate. `Policy` therefore requires both an issuer

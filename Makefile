@@ -8,23 +8,17 @@ test:
 
 test-race:
 	go test -race ./...
-	@for m in $(SUBMODULES) $(AUX_MODULES); do \
+	@for m in $(SUBMODULES); do \
 		echo "==> $$m (race)"; \
 		(cd $$m && go test -race ./...) || exit 1; \
 	done
 
 # Submodules live outside the core module so its dependency-free promise holds;
 # `go test ./...` therefore does not reach them and CI must run them by name.
-SUBMODULES = router provider/anthropicsdk provider/openaisdk provider/bedrocksdk
-
-# Modules that are built and tested but not part of the release version-sync and
-# tagging flow, because they require the router module rather than the root and
-# so do not fit check-module-versions' assumption. Publishing them is unresolved;
-# see docs/adr/0007.
-AUX_MODULES = router/verify/sigstore
+SUBMODULES = router provider/anthropicsdk provider/openaisdk provider/bedrocksdk router/verify/sigstore
 
 test-submodules:
-	@for m in $(SUBMODULES) $(AUX_MODULES); do \
+	@for m in $(SUBMODULES); do \
 		echo "==> $$m"; \
 		(cd $$m && go test ./...) || exit 1; \
 	done
@@ -65,7 +59,7 @@ lint-ci: custom-golangci-lint
 	done
 
 lint-submodules: custom-golangci-lint
-	@for m in $(SUBMODULES) $(AUX_MODULES); do \
+	@for m in $(SUBMODULES); do \
 		echo "==> $$m (lint)"; \
 		(cd $$m && $(CUSTOM_LINT_ABS) run ./...) || exit 1; \
 	done

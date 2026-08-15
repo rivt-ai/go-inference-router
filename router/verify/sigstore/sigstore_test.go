@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rivt-ai/go-inference-router/router/install"
+	llm "github.com/rivt-ai/go-inference-router"
 )
 
 // An unpinned policy is the sharp edge of keyless verification: a bundle that
@@ -46,7 +46,7 @@ func TestNewVerifierRejectsMalformedTrustedRoot(t *testing.T) {
 func TestVerifyManifestRejectsMalformedBundle(t *testing.T) {
 	verifier := &Verifier{}
 	err := verifier.VerifyManifest(context.Background(), []byte(`{}`), []byte("not a bundle"))
-	if !errors.Is(err, install.ErrUnverified) {
-		t.Fatalf("error = %v, want install.ErrUnverified", err)
+	if !errors.Is(err, llm.ErrUnverified) {
+		t.Fatalf("error = %v, want llm.ErrUnverified", err)
 	}
 }

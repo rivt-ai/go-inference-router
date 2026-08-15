@@ -2,12 +2,11 @@ module github.com/rivt-ai/go-inference-router/router/verify/sigstore
 
 go 1.26
 
-require github.com/rivt-ai/go-inference-router/router v0.5.0
-
 require (
 	github.com/aws/aws-sdk-go-v2 v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.35 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.34 // indirect
+	github.com/zalando/go-keyring v0.2.8 // indirect
 )
 
 require (
@@ -53,7 +52,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/rivt-ai/go-inference-router v0.5.0 // indirect
+	github.com/rivt-ai/go-inference-router v0.5.0
 	github.com/secure-systems-lab/go-securesystemslib v0.11.0 // indirect
 	github.com/shibumi/go-pathspec v1.3.0 // indirect
 	github.com/sigstore/protobuf-specs v0.5.1 // indirect

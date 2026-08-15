@@ -8,7 +8,7 @@ VERSION=${1:?version is required}
 ROOT=github.com/rivt-ai/go-inference-router
 status=0
 
-for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk; do
+for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk router/verify/sigstore; do
 	required=$(cd "$module" && go mod edit -json | jq -r \
 		--arg root "$ROOT" '.Require[]? | select(.Path == $root) | .Version')
 	replaced=$(cd "$module" && go mod edit -json | jq -r \

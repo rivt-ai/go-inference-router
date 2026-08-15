@@ -34,7 +34,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"
 
-	"github.com/rivt-ai/go-inference-router/router/install"
+	llm "github.com/rivt-ai/go-inference-router"
 )
 
 // Policy names the workflow identity a manifest must have been signed by.
@@ -112,26 +112,30 @@ func NewVerifier(policy Policy) (*Verifier, error) {
 	return &Verifier{verifier: inner, identity: identity}, nil
 }
 
-// SidecarSuffix implements install.Verifier. Cosign writes bundles with this
+// SidecarSuffix implements the installer's Verifier seam. Cosign writes bundles with this
 // suffix by convention, and keeping the key-based ".sig" name would make two
 // incompatible formats share one URL.
 func (v *Verifier) SidecarSuffix() string { return ".sigstore.json" }
 
-// VerifyManifest implements install.Verifier.
+// VerifyManifest implements the installer's Verifier seam.
 func (v *Verifier) VerifyManifest(_ context.Context, body, sidecar []byte) error {
 	var signed bundle.Bundle
 	if err := signed.UnmarshalJSON(sidecar); err != nil {
-		return fmt.Errorf("%w: malformed sigstore bundle: %w", install.ErrUnverified, err)
+		return fmt.Errorf("%w: malformed sigstore bundle: %w", llm.ErrUnverified, err)
 	}
 	_, err := v.verifier.Verify(&signed, verify.NewPolicy(
 		verify.WithArtifact(bytes.NewReader(body)),
 		verify.WithCertificateIdentity(v.identity),
 	))
 	if err != nil {
-		return fmt.Errorf("%w: %w", install.ErrUnverified, err)
+		return fmt.Errorf("%w: %w", llm.ErrUnverified, err)
 	}
 	return nil
 }
 
-// Verifier must satisfy the installer's seam.
-var _ install.Verifier = (*Verifier)(nil)
+// This package deliberately does not import router/install to assert
+// install.Verifier here: the seam's methods use only stdlib types, so Go
+// satisfies it implicitly, and importing it would make this module depend on
+// router rather than on the root module. The contract is asserted from the
+// other side instead — see TestSigstoreShapeSatisfiesVerifier in
+// router/install.

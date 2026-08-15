@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+
+	llm "github.com/rivt-ai/go-inference-router"
 )
 
 // Verifier authenticates the registry manifest before any artifact named by it
@@ -36,7 +38,12 @@ type Verifier interface {
 // ErrUnverified reports a manifest that failed authentication. Verifiers wrap
 // it so a caller can distinguish "not authentic" from "could not check", which
 // matters when a verifier depends on a network service that may be down.
-var ErrUnverified = errors.New("registry manifest failed verification")
+//
+// This is an alias for the root module's value, not a second sentinel: the
+// identity is what errors.Is compares, so a verifier that names either one is
+// recognised here. It lives in the root module so an implementation does not
+// have to import router — and its dependency tree — merely to say "unverified".
+var ErrUnverified = llm.ErrUnverified
 
 // KeyVerifier authenticates with a compiled-in Ed25519 public key. This is the
 // original behavior and remains the default.

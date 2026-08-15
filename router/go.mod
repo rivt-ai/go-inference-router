@@ -2,6 +2,8 @@ module github.com/rivt-ai/go-inference-router/router
 
 go 1.26
 
+toolchain go1.26.6
+
 require (
 	filippo.io/age v1.3.1
 	github.com/godbus/dbus/v5 v5.2.2

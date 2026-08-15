@@ -41,7 +41,7 @@ func TestPathLookupRefusedWhenInstallerExistsWithoutCompiledKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installer := install.New("https://example.invalid/registry.json", key, t.TempDir(), nil, nil)
+	installer := install.New("https://example.invalid/registry.json", install.NewKeyVerifier(key), t.TempDir(), nil, nil)
 	if pathLookupAllowed(config.Config{}, installer) {
 		t.Fatal("a configured trust root without a compiled-in key allowed unmanaged PATH providers")
 	}

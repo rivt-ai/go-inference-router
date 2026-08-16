@@ -29,6 +29,7 @@ package sigstore
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 
@@ -38,6 +39,48 @@ import (
 
 	"github.com/rivt-ai/go-inference-router/router/install"
 )
+
+// ReleaseIssuer and ReleaseIdentity pin who may sign this repository's registry
+// manifest: the release workflow of this repository, running from main.
+//
+// Fulcio issues refs/heads/<branch> for a branch and refs/tags/<tag> for a tag,
+// so this string tracks how release.yml is actually dispatched. Renaming that
+// workflow or releasing from somewhere else invalidates it, which is what
+// TestReleasePolicyNamesTheSigningWorkflow exists to catch.
+const (
+	ReleaseIssuer   = "https://token.actions.githubusercontent.com"
+	ReleaseIdentity = "https://github.com/rivt-ai/go-inference-router" +
+		"/.github/workflows/release.yml@refs/heads/main"
+)
+
+// releaseTrustedRoot is the public-good Sigstore trusted root, embedded so
+// verification needs no network and no per-host setup.
+//
+// Refresh it with `make sync-trusted-root` when Sigstore rotates its roots. A
+// stale root stops verifying with no code change to announce it, which is why
+// the weekly Sigstore E2E run verifies a real bundle against these bytes.
+//
+//go:embed trusted_root.json
+var releaseTrustedRoot []byte
+
+// ReleasePolicy is the policy for the registry this repository publishes.
+//
+// It exists so hosts do not each re-derive the same three values, since two of
+// them are easy to get wrong in ways that fail closed but obscurely: an
+// identity missing its ref accepts runs from any branch, and a trusted root
+// built rather than fetched contains no transparency logs at all.
+//
+// A function returning a fresh copy, rather than a package variable, so no
+// caller can mutate the root or the identity every other caller relies on.
+// Adjust the copy if you need to; a host running its own registry supplies its
+// own Policy instead.
+func ReleasePolicy() Policy {
+	return Policy{
+		Issuer:          ReleaseIssuer,
+		Identity:        ReleaseIdentity,
+		TrustedRootJSON: bytes.Clone(releaseTrustedRoot),
+	}
+}
 
 // Policy names the workflow identity a manifest must have been signed by.
 //
@@ -63,8 +106,15 @@ type Policy struct {
 	// Identity; a loose pattern is the easiest way to widen this accidentally.
 	IdentityRegexp string
 
-	// TrustedRootJSON is the Sigstore trusted root, as shipped by cosign's
-	// `cosign trusted-root create` or fetched from TUF ahead of time.
+	// TrustedRootJSON is the Sigstore trusted root, fetched from TUF ahead of
+	// time. ReleasePolicy supplies the public-good root for this repository's
+	// registry; a host verifying its own registry obtains one with
+	// `cosign initialize` and reads the cached trusted_root.json target.
+	//
+	// Not `cosign trusted-root create`: despite the name that subcommand does
+	// not fetch anything. It builds a root from material passed in its
+	// --fulcio/--rekor/--ctfe flags, and with no flags emits a root with no
+	// transparency logs and no certificate authorities, which verifies nothing.
 	//
 	// Taken as bytes rather than fetched at verify time so verification is
 	// offline, reproducible, and cannot be steered by whoever answers a TUF

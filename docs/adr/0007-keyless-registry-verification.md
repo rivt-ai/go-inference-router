@@ -113,13 +113,37 @@ trusted root goes stale by the calendar rather than by a code change, and
 nothing else would notice. It cannot run on pull requests from forks, which are
 not granted `id-token: write`.
 
+## Amendment: the root ships, the default does not change
+
+The decision above said `KeyVerifier` stays the default "until a release ships
+an embedded trusted root and a pinned identity". v0.6.0 published a signed
+registry, and `sigstore.ReleasePolicy()` now carries the embedded root and the
+pinned `release.yml@refs/heads/main` identity — so the stated precondition is
+met. The default stays keyed anyway.
+
+The reason is size, measured rather than assumed: a binary that merely imports
+`router/verify/sigstore` links to 25.8 MB, against 11.4 MB for the entire CLI.
+Making it the default means `open.go` imports it unconditionally, so every host
+embedding the router pays roughly +15 MB — including hosts that only use the
+in-process `openai-compatible` driver and never install a provider binary at
+all. The consequence above argues the dependency should land on the feature
+that needs it; making it the default lands it on everyone.
+
+So verification stays opt-in, one call:
+`sigstore.NewVerifier(sigstore.ReleasePolicy())`.
+
+The cost of that choice is the one this ADR already named: a host that forgets
+to opt in gets no installer, and no installer re-enables unverified `PATH`
+lookup. That remains wrong-by-default and unresolved — `ReleasePolicy` only
+makes opting in cheap enough that there is no longer an excuse.
+
 ## Open
 
 - Can the installer depend on Sigstore verification at *verify* time in every
   deployment we care about? Offline verification against a pinned trusted root
   avoids a network call, but the trusted root still has to be refreshed.
-- The trusted root shipped to hosts is still supplied by the caller. The e2e
-  job proves a *freshly generated* root verifies; it does not yet assert that
-  the bytes a release embeds are current.
-- Should keyless become the default once a registry is hosted, with the key path
-  kept only for private registries?
+- Silent downgrade on the way in: no trust root configured means no installer,
+  which means unsigned `PATH` binaries execute. Opt-in verification cannot fix
+  that; only changing what happens when nothing is configured can.
+- Refreshing the embedded root is a manual `make sync-trusted-root`. CI reports
+  staleness weekly, but nothing forces the refresh before a user meets it.

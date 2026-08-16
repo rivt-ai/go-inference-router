@@ -62,10 +62,26 @@ importing them at all.
 
 ## Install
 
+As a library:
+
 ```text
 go get github.com/rivt-ai/go-inference-router          # the contract + built-in adapter
-go install github.com/rivt-ai/go-inference-router/router/cmd/go-inference-router@latest
 ```
+
+As a command, from a signed release:
+
+```sh
+gh release download --repo rivt-ai/go-inference-router -p 'go-inference-router-linux-amd64'
+gh attestation verify go-inference-router-linux-amd64 --repo rivt-ai/go-inference-router
+install -m 755 go-inference-router-linux-amd64 ~/.local/bin/go-inference-router
+```
+
+Not `go install`. Release builds embed the registry public key through the
+linker, and `go install` cannot pass it, so a binary built that way has no trust
+root: managed provider installation switches off and unsigned
+`go-inference-router-provider-*` binaries on `PATH` become executable instead.
+Build from source for development, where that is what you want; use a release
+binary anywhere the verification described below is supposed to hold.
 
 The root package is named `inference`. Examples in this repo import it as
 `inference` or alias it to `router`; either reads fine.
@@ -255,6 +271,37 @@ workflow's OIDC identity recorded in a public transparency log, rather than a
 long-lived key someone has to hold and rotate. A host running its own registry
 supplies its own verifier through `router.Options.RegistryVerifier`. See
 [ADR 0007](docs/adr/0007-keyless-registry-verification.md).
+
+### Getting a provider binary
+
+Four ways, and they do not offer the same guarantees:
+
+| How | Verification |
+|---|---|
+| Managed install (`llm.v1.install.plan` → `approve`, or `Installer().Plan` → `Approve`) | Signed manifest, size and SHA-256 on download, digest re-checked before every launch |
+| `path:` on a Provider Definition | **None.** The file is executed as given |
+| On `PATH`, with `registry.allow_path_lookup: true` | **None.** Found by name |
+| `make build` into `.cache/bin` | **None.** Development only |
+
+Only the first is verified. The other three exist because a host may have its
+own supply chain, or none at all — but a config that sets `path:` has opted out
+of everything this section describes, silently and per provider.
+
+Managed installation needs a trust root, and a host embedding the router module
+has no compiled-in key. Use the keyless policy for this repository's registry:
+
+```go
+verifier, err := sigstore.NewVerifier(sigstore.ReleasePolicy())
+r, err := router.Open(ctx, router.Options{Config: &cfg, RegistryVerifier: verifier})
+
+plan, err := r.Installer().Plan(ctx, "anthropic", "")   // "" selects newest stable
+// show plan.Source, plan.Size, plan.SHA256 to whoever approves
+path, err := r.Installer().Approve(ctx, plan.ID)
+```
+
+The two calls are deliberately separate: nothing is downloaded until something
+approves the plan, and a plan is one-use and expires. See
+[docs/integration.md](docs/integration.md) for the full flow.
 
 Implicit installs and launches select the newest stable semantic version;
 prereleases and legacy version identifiers require an exact version. Hosts can

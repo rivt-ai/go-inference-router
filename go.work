@@ -15,5 +15,4 @@ use (
 	./provider/bedrocksdk
 	./provider/openaisdk
 	./router
-	./router/verify/sigstore
 )

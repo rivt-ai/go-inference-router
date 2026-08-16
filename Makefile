@@ -15,7 +15,7 @@ test-race:
 
 # Submodules live outside the core module so its dependency-free promise holds;
 # `go test ./...` therefore does not reach them and CI must run them by name.
-SUBMODULES = router provider/anthropicsdk provider/openaisdk provider/bedrocksdk router/verify/sigstore
+SUBMODULES = router provider/anthropicsdk provider/openaisdk provider/bedrocksdk
 
 test-submodules:
 	@for m in $(SUBMODULES); do \
@@ -44,7 +44,7 @@ e2e:
 # builds. The test fails rather than skips when they are missing — a signing
 # test that quietly does not run looks exactly like one that passed.
 sigstore-e2e:
-	cd router/verify/sigstore && go test -tags=sigstoree2e -count=1 -timeout=10m -v ./...
+	cd router && go test -tags=sigstoree2e -count=1 -timeout=10m -v ./verify/sigstore/...
 
 # lint uses the custom build (which carries the goclocbudget plugin) when it is
 # present, and falls back to a stock golangci-lint otherwise — that fallback

@@ -100,5 +100,5 @@ jobs:
           # issued — the exact failure this job exists to catch.
           export SIGSTORE_E2E_IDENTITY="$GITHUB_SERVER_URL/$GITHUB_WORKFLOW_REF"
           echo "pinning identity: $SIGSTORE_E2E_IDENTITY"
-          cd router/verify/sigstore
-          go test -tags sigstoree2e -count=1 -v ./...
+          cd router
+          go test -tags sigstoree2e -count=1 -v ./verify/sigstore/...

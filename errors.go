@@ -37,20 +37,6 @@ const (
 	KindCanceled Kind = "canceled"
 )
 
-// ErrUnverified reports a registry manifest that failed authentication.
-//
-// It lives in the root module, which has no dependencies, so that a verifier
-// implementation can name it without importing the router module. That keeps
-// an out-of-tree verifier — see router/verify/sigstore — a leaf module
-// alongside the SDK adapters rather than one that depends on router, which is
-// what lets the existing release tooling publish it.
-//
-// Callers distinguish "not authentic" from "could not check" with errors.Is:
-// a verifier that consults a network service can fail either way, and only the
-// first means the artifact is untrustworthy. router/install re-exports this as
-// install.ErrUnverified.
-var ErrUnverified = errors.New("registry manifest failed verification")
-
 // Error is a portable provider failure with optional source details.
 type Error struct {
 	Kind     Kind   `json:"kind"`

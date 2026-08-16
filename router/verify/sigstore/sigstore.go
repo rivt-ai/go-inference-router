@@ -1,10 +1,12 @@
 // Package sigstore verifies the provider registry manifest against a Sigstore
 // bundle instead of a long-lived signing key.
 //
-// It is a separate Go module for the same reason each SDK adapter is: importing
-// it costs sigstore-go and its transitive dependencies, and a host that keeps
-// the Ed25519 trust root should not pay for them. Nothing in router/ imports
-// this package; a host opts in through router.Options.RegistryVerifier.
+// It lives in the router module rather than a module of its own. Provider
+// installation is what the router module is for, and a host that installs
+// provider binaries is exactly the host that needs to verify them — so the
+// dependency lands on the feature that requires it. An application that only
+// wants the chat-completions driver imports provider/openaicompat from the
+// dependency-free root module and pays none of this.
 //
 // # What this changes about trust
 //
@@ -34,7 +36,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"
 
-	llm "github.com/rivt-ai/go-inference-router"
+	"github.com/rivt-ai/go-inference-router/router/install"
 )
 
 // Policy names the workflow identity a manifest must have been signed by.
@@ -112,30 +114,26 @@ func NewVerifier(policy Policy) (*Verifier, error) {
 	return &Verifier{verifier: inner, identity: identity}, nil
 }
 
-// SidecarSuffix implements the installer's Verifier seam. Cosign writes bundles with this
+// SidecarSuffix implements install.Verifier. Cosign writes bundles with this
 // suffix by convention, and keeping the key-based ".sig" name would make two
 // incompatible formats share one URL.
 func (v *Verifier) SidecarSuffix() string { return ".sigstore.json" }
 
-// VerifyManifest implements the installer's Verifier seam.
+// VerifyManifest implements install.Verifier.
 func (v *Verifier) VerifyManifest(_ context.Context, body, sidecar []byte) error {
 	var signed bundle.Bundle
 	if err := signed.UnmarshalJSON(sidecar); err != nil {
-		return fmt.Errorf("%w: malformed sigstore bundle: %w", llm.ErrUnverified, err)
+		return fmt.Errorf("%w: malformed sigstore bundle: %w", install.ErrUnverified, err)
 	}
 	_, err := v.verifier.Verify(&signed, verify.NewPolicy(
 		verify.WithArtifact(bytes.NewReader(body)),
 		verify.WithCertificateIdentity(v.identity),
 	))
 	if err != nil {
-		return fmt.Errorf("%w: %w", llm.ErrUnverified, err)
+		return fmt.Errorf("%w: %w", install.ErrUnverified, err)
 	}
 	return nil
 }
 
-// This package deliberately does not import router/install to assert
-// install.Verifier here: the seam's methods use only stdlib types, so Go
-// satisfies it implicitly, and importing it would make this module depend on
-// router rather than on the root module. The contract is asserted from the
-// other side instead — see TestSigstoreShapeSatisfiesVerifier in
-// router/install.
+// Verifier must satisfy the installer's seam.
+var _ install.Verifier = (*Verifier)(nil)

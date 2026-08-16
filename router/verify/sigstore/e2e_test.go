@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	llm "github.com/rivt-ai/go-inference-router"
+	"github.com/rivt-ai/go-inference-router/router/install"
 	"github.com/rivt-ai/go-inference-router/router/verify/sigstore"
 )
 
@@ -93,8 +93,8 @@ func TestRejectsTamperedManifest(t *testing.T) {
 	if err == nil {
 		t.Fatal("VerifyManifest accepted a manifest the bundle does not cover")
 	}
-	if !errors.Is(err, llm.ErrUnverified) {
-		t.Fatalf("error = %v, want it to wrap llm.ErrUnverified", err)
+	if !errors.Is(err, install.ErrUnverified) {
+		t.Fatalf("error = %v, want it to wrap install.ErrUnverified", err)
 	}
 }
 
@@ -115,8 +115,8 @@ func TestRejectsUnpinnedIdentity(t *testing.T) {
 	if err == nil {
 		t.Fatal("VerifyManifest accepted a bundle signed by an unpinned identity")
 	}
-	if !errors.Is(err, llm.ErrUnverified) {
-		t.Fatalf("error = %v, want it to wrap llm.ErrUnverified", err)
+	if !errors.Is(err, install.ErrUnverified) {
+		t.Fatalf("error = %v, want it to wrap install.ErrUnverified", err)
 	}
 }
 

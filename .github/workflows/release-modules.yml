@@ -78,7 +78,7 @@ jobs:
           GOWORK: "off"
           GOFLAGS: -mod=readonly
         run: |
-          for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk router/verify/sigstore; do
+          for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk; do
             echo "== $module =="
             (cd "$module" && go build ./... && go test ./...)
           done
@@ -89,7 +89,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk router/verify/sigstore; do
+          for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk; do
             tag="$module/$RELEASE_VERSION"
             gh api "repos/$GITHUB_REPOSITORY/git/refs" \
               -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA" >/dev/null

@@ -29,19 +29,20 @@ is nothing to rotate and nothing to steal.
 ## Decision
 
 Make manifest verification a seam (`install.Verifier`) rather than a fixed
-Ed25519 check, and ship the Sigstore implementation as a **separate Go module**
-that nothing in `router/` imports.
+Ed25519 check, and implement Sigstore verification **inside the router module**.
 
 - `install.Verifier` has two methods: `SidecarSuffix()` and `VerifyManifest()`.
   The suffix belongs to the verifier because the formats are incompatible and
   must not share a URL (`.sig` vs `.sigstore.json`).
-- `install.KeyVerifier` preserves today's behavior and remains the default.
-- `router/verify/sigstore` implements the seam using `sigstore-go`. It is its
-  own module for the same reason each SDK adapter is (ADR 0003): importing it
-  costs `sigstore-go` and its transitive dependencies, and a host keeping the
-  key-based root should not pay for them.
-- A host opts in through `router.Options.RegistryVerifier`, mirroring how
-  `Options.Secrets` already gates age/keyring/dbus.
+- `router/verify/sigstore` implements the seam using `sigstore-go`, in the
+  router module — see the consequence below on why not a module of its own.
+- `install.KeyVerifier` preserves today's behavior and remains the default
+  until a release ships an embedded trusted root and a pinned identity.
+- The seam stays because **private registries need it**: the Sigstore policy
+  pins *this* repository's workflow identity, so a host running its own
+  registry must supply its own verifier through
+  `router.Options.RegistryVerifier`. That is what the seam is for now — not a
+  keyless-versus-key choice for hosts using the official registry.
 
 The release pipeline publishes **both** sidecars. Publishing only the bundle
 would strand every binary already installed — the exact failure this is meant
@@ -60,27 +61,28 @@ steered by whoever answers a TUF request — at the price of refreshing it when
 Sigstore rotates its own roots. That is release engineering, not runtime.
 
 **Cost.** Verification has more moving parts than one `ed25519.Verify`, and the
-dependency footprint is large. Confining it to its own module bounds the blast
-radius to hosts that ask for it.
+dependency footprint is large.
 
-**The module stays a leaf, and that is what makes it publishable.** The seam's
-methods take only stdlib types, so Go satisfies `install.Verifier` implicitly
-and an implementation never needs to import it. The one thing both sides must
-agree on is the identity of `ErrUnverified`, which distinguishes "not authentic"
-from "could not check". That sentinel therefore lives in the **root** module —
-which has no dependencies — and `install.ErrUnverified` aliases it, so the
-identity `errors.Is` compares is unchanged.
+**It lives in the router module, not a module of its own.** An earlier draft
+split it out, on the ADR 0003 argument that a host keeping the Ed25519 root
+should not pay for `sigstore-go`. That argument does not survive contact with
+how the router is actually consumed. Applications embed the router *to load and
+install provider binaries*; an application that only wants the
+chat-completions driver imports `provider/openaicompat` from the
+dependency-free root module and never sees `router` at all. So the hosts paying
+for these dependencies are exactly the hosts executing downloaded binaries —
+the dependency lands on the feature that needs it.
 
-Had it stayed in `router/install`, this module would have required *router*
-rather than the root: the repository's first depth-2 module, and one that
-`check-module-versions` and `release-modules.yml` cannot publish, since both
-assume every published module pins the root at the release version and tags
-them all at a single commit. A module whose `go.sum` can only be correct after
-a *sibling's* tag exists does not fit a one-pass tag job. Naming the sentinel
-from the root instead keeps this module structurally identical to the SDK
-adapters, so it publishes through the existing flow with no new release stage.
-The cost is that the compile-time `var _ install.Verifier` assertion cannot live
-here; the contract is asserted from `router/install`'s tests instead.
+Keeping it separate also made verification opt-in, which is the wrong default
+for a security control: a host that forgets to opt in falls back to the key
+path silently. And it made the package the repository's first depth-2 module,
+which `check-module-versions` and `release-modules.yml` cannot publish, since
+both assume every published module pins the root at the release version and
+tags them all at one commit.
+
+The cost is real and bounded: `router` goes from 10 direct dependencies to
+around 80. `provider/openaicompat` stays in the root module precisely so that
+cost is avoidable.
 
 **Policy must be pinned, and this is the sharp edge.** Verifying a bundle
 without pinning an identity proves only that *somebody* signed it and logged it

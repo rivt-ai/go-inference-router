@@ -1,5 +1,10 @@
 # go-inference-router
 
+[![Release](https://img.shields.io/github/v/release/rivt-ai/go-inference-router?include_prereleases&sort=semver)](https://github.com/rivt-ai/go-inference-router/releases/latest)
+[![Test](https://github.com/rivt-ai/go-inference-router/actions/workflows/test.yml/badge.svg)](https://github.com/rivt-ai/go-inference-router/actions/workflows/test.yml)
+[![Lint](https://github.com/rivt-ai/go-inference-router/actions/workflows/lint.yml/badge.svg)](https://github.com/rivt-ai/go-inference-router/actions/workflows/lint.yml)
+[![E2E](https://github.com/rivt-ai/go-inference-router/actions/workflows/e2e.yml/badge.svg)](https://github.com/rivt-ai/go-inference-router/actions/workflows/e2e.yml)
+
 One model contract for Go agents, and a runtime that routes it to any provider.
 
 Your host application asks for a **Model Profile** — a friendly ID like `sonnet`
@@ -23,9 +28,37 @@ Nothing here is host-specific: the host-facing
 surface is a plain Go interface or a JSON-RPC protocol over stdio, so any agent
 — Go or otherwise — can drive it.
 
-Why it is split up: the root Go package is the **dependency-free contract**.
-YAML, encryption, keyring, process management, and vendor SDKs live in separate
-Go modules, so importing the contract costs you nothing.
+## What you actually depend on
+
+The repo is several Go modules, and **you only pay for the one you import**.
+Nothing is pulled in transitively by importing the contract.
+
+| You import | Modules pulled in | You get |
+|---|---:|---|
+| `go-inference-router` | **0** | The contract types, plus the built-in OpenAI-compatible adapter |
+| `.../router` | ~78 | Config files, secrets, provider processes, downloading and verifying providers |
+| `.../provider/openaisdk` | 6 | OpenAI Responses API driver |
+| `.../provider/anthropicsdk` | 13 | Anthropic Messages API driver |
+| `.../provider/bedrocksdk` | 17 | Bedrock Converse driver |
+
+**If you just want to call a model**, import the root module. It has zero
+dependencies, and `provider/openaicompat` lives inside it — so talking to
+OpenAI, llama.cpp, vLLM, Ollama, OpenRouter or LM Studio costs you nothing but
+the standard library. This is the common case, and it is deliberately the
+cheapest one.
+
+**Import `router` when you want it to manage providers for you**: read a YAML
+config, resolve secrets, launch provider processes, and download and verify
+provider binaries. That last part is where the bulk of the dependencies come
+from — `sigstore-go` for keyless signature verification is most of the ~78.
+The trade is intentional: a host that downloads and executes provider binaries
+is exactly the host that needs to verify them, so the cost sits with the
+feature that requires it rather than with everyone.
+
+**The SDK-backed providers are separate modules** so their vendor SDKs never
+reach anything that does not use them. Each ships as its own
+`go-inference-router-provider-*` binary, so you can also use them without
+importing them at all.
 
 ## Install
 
@@ -211,9 +244,17 @@ the user cache, records the digest, and verifies it again immediately before
 execution.
 
 Release builds embed the registry public key; private registries may set
-`registry.url` and `registry.public_key` in YAML. When a trusted registry key is
+`registry.url` and `registry.public_key` in YAML. When an installer is
 configured, unmanaged `go-inference-router-provider-*` binaries found on `PATH`
 are disabled unless `registry.allow_path_lookup: true` is set explicitly.
+
+Manifest verification is a seam (`install.Verifier`), so the trust model is a
+deployment choice. `router/verify/sigstore` verifies the manifest against a
+Sigstore bundle instead — authenticating *who published it*, via the release
+workflow's OIDC identity recorded in a public transparency log, rather than a
+long-lived key someone has to hold and rotate. A host running its own registry
+supplies its own verifier through `router.Options.RegistryVerifier`. See
+[ADR 0007](docs/adr/0007-keyless-registry-verification.md).
 
 Implicit installs and launches select the newest stable semantic version;
 prereleases and legacy version identifiers require an exact version. Hosts can

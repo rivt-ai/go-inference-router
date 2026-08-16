@@ -33,7 +33,7 @@ surface is a plain Go interface or a JSON-RPC protocol over stdio, so any agent
 The repo is several Go modules, and **you only pay for the one you import**.
 Nothing is pulled in transitively by importing the contract.
 
-| You import | Modules pulled in | You get |
+| You import | Modules in `go.mod` | You get |
 |---|---:|---|
 | `go-inference-router` | **0** | The contract types, plus the built-in OpenAI-compatible adapter |
 | `.../router` | ~78 | Config files, secrets, provider processes, downloading and verifying providers |
@@ -41,24 +41,39 @@ Nothing is pulled in transitively by importing the contract.
 | `.../provider/anthropicsdk` | 13 | Anthropic Messages API driver |
 | `.../provider/bedrocksdk` | 17 | Bedrock Converse driver |
 
+That middle row is a module count, not a linking cost, and the two are nowhere
+near each other. What a module requires and what the linker puts in your binary
+are different questions — most of `router`'s ~78 modules serve code paths you
+have to opt in to. Measured, on Linux/amd64:
+
+| A binary that… | Size | Linked packages |
+|---|---:|---:|
+| calls a model through `openaicompat` | 5.4 MB | 192 |
+| embeds the whole router (`router.Open`) | 5.7 MB | 200 |
+| …and opts in to keyless verification | 27.4 MB | 555 |
+
 **If you just want to call a model**, import the root module. It has zero
 dependencies, and `provider/openaicompat` lives inside it — so talking to
 OpenAI, llama.cpp, vLLM, Ollama, OpenRouter or LM Studio costs you nothing but
 the standard library. This is the common case, and it is deliberately the
 cheapest one.
 
-**Import `router` when you want it to manage providers for you**: read a YAML
-config, resolve secrets, launch provider processes, and download and verify
-provider binaries. That last part is where the bulk of the dependencies come
-from — `sigstore-go` for keyless signature verification is most of the ~78.
-The trade is intentional: a host that downloads and executes provider binaries
-is exactly the host that needs to verify them, so the cost sits with the
-feature that requires it rather than with everyone.
+**Embedding the whole router costs about 350 KB** over that: config, secrets,
+provider process management, and verified provider installation. YAML parsing
+(`configfile`) and the keychain-backed secret store (`secret`) are separate
+packages you import only if you want them, which is why the number is small.
+
+**Keyless verification is the one expensive thing, and it is opt-in.** Importing
+`router/verify/sigstore` adds ~21 MB, because verifying a Rekor inclusion proof
+drags in the transparency log's wire schema — gRPC, protobuf and OpenAPI
+generated types — even though verification itself is offline and makes no
+network call. Leave it out and you keep the Ed25519 trust root at no cost; see
+[Getting a provider binary](#getting-a-provider-binary).
 
 **The SDK-backed providers are separate modules** so their vendor SDKs never
 reach anything that does not use them. Each ships as its own
-`go-inference-router-provider-*` binary, so you can also use them without
-importing them at all.
+`go-inference-router-provider-*` binary — a separate process, so importing
+nothing and running all three costs your own binary nothing at all.
 
 ## Install
 

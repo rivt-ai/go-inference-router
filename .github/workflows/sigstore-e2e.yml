@@ -1,0 +1,104 @@
+name: Sigstore E2E
+
+# Signs a manifest with cosign and verifies it with the real verifier, so the
+# accept path runs against a genuine Fulcio certificate and Rekor entry. The
+# unit tests only cover rejection; a verifier that refused everything would
+# pass them and fail on a user's machine at install time.
+#
+# Why not on `pull_request`: keyless signing needs an OIDC token, and
+# `id-token: write` is not granted to pull_request runs from forks. Rather than
+# a job that skips for outside contributors — a skipped signing test is
+# indistinguishable from a passing one — this runs where the token always
+# exists: pushes to main, a weekly schedule, and manual dispatch.
+#
+# The schedule is not redundant with the push trigger. The trusted root is
+# embedded bytes that expire when Sigstore rotates its roots, and a stale root
+# breaks verification with no code change to trigger CI. The weekly run is what
+# turns that into a failed build instead of a failed release.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "router/verify/sigstore/**"
+      - ".github/workflows/sigstore-e2e.yml"
+      - "scripts/build-release.sh"
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sigstore-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sigstore-e2e:
+    name: Sigstore E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Exchanged by cosign for a short-lived Fulcio certificate. No key
+      # material is involved, and nothing here can write to the repository.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+
+      # A manifest-shaped blob rather than a full release build: what is under
+      # test is the signature over the bytes, and cosign signs a digest, so the
+      # content only has to be stable and non-empty. Keeping it inline means
+      # this job does not depend on a release toolchain to run.
+      - name: Write a manifest to sign
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/registry.json" <<'JSON'
+          {"version":1,"providers":{"openai":{"artifacts":[]}}}
+          JSON
+
+      # The same invocation scripts/build-release.sh makes under
+      # INFROUTER_SIGSTORE=1, so this exercises the real signing path and would
+      # notice a cosign flag change that breaks releases.
+      - name: Sign it with cosign
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle "$RUNNER_TEMP/registry.json.sigstore.json" \
+            "$RUNNER_TEMP/registry.json" > /dev/null
+
+      # The verifier takes the trusted root as bytes and never fetches it, so
+      # the test must supply one. Generating it here from cosign's TUF view is
+      # what makes a Sigstore root rotation visible: when the embedded root in a
+      # release goes stale, this file stops matching and the run fails.
+      - name: Create the trusted root
+        run: cosign trusted-root create > "$RUNNER_TEMP/trusted-root.json"
+
+      # The identity is this workflow's own SAN, built from the values GitHub
+      # sets rather than hardcoded, so a rename or a ref change cannot silently
+      # desync it from what Fulcio issued.
+      - name: Verify with the real verifier
+        env:
+          SIGSTORE_E2E_ISSUER: https://token.actions.githubusercontent.com
+          SIGSTORE_E2E_MANIFEST: ${{ runner.temp }}/registry.json
+          SIGSTORE_E2E_BUNDLE: ${{ runner.temp }}/registry.json.sigstore.json
+          SIGSTORE_E2E_TRUSTED_ROOT: ${{ runner.temp }}/trusted-root.json
+        run: |
+          set -euo pipefail
+          # GITHUB_WORKFLOW_REF is already "owner/repo/path/to/workflow.yml@ref",
+          # which is the certificate SAN with the server URL prefixed. Building
+          # it from the parts instead would risk disagreeing with what Fulcio
+          # issued — the exact failure this job exists to catch.
+          export SIGSTORE_E2E_IDENTITY="$GITHUB_SERVER_URL/$GITHUB_WORKFLOW_REF"
+          echo "pinning identity: $SIGSTORE_E2E_IDENTITY"
+          cd router
+          go test -tags sigstoree2e -count=1 -v ./verify/sigstore/...

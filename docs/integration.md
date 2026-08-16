@@ -146,6 +146,37 @@ r, err := router.Open(ctx, router.Options{
 Reading a workspace file trusts whatever a repository ships. Prefer `Config`
 unless your host gates that trust itself.
 
+**Keyless registry verification** is opt-in, and deliberately not defaulted for
+the same reason as the credential resolver below — it costs `sigstore-go` and its
+transitive dependencies, and a host keeping the Ed25519 trust root should not pay
+for them:
+
+```go
+import "github.com/rivt-ai/go-inference-router/router/verify/sigstore"
+
+verifier, err := sigstore.NewVerifier(sigstore.Policy{
+    Issuer:   "https://token.actions.githubusercontent.com",
+    Identity: "https://github.com/rivt-ai/go-inference-router" +
+        "/.github/workflows/release.yml@refs/heads/main",
+    TrustedRootJSON: trustedRoot, // embedded, not fetched
+})
+
+r, err := router.Open(ctx, router.Options{
+    Config:           &cfg,
+    RegistryVerifier: verifier,
+})
+```
+
+The manifest is then authenticated by *who published it* — the release workflow's
+OIDC identity, recorded in a public transparency log — rather than by a key you
+have to hold and rotate. Leaving `RegistryVerifier` nil keeps the compiled-in
+Ed25519 key, which is still the default and still what release builds publish
+alongside the bundle.
+
+Both fields of `Policy` are required. A bundle that verifies cryptographically
+but names no identity proves only that *somebody* signed it, since anyone can
+obtain a certificate; pin the workflow **and its ref**. See ADR 0007.
+
 **Credential references** need a resolver, and it is deliberately not defaulted:
 
 ```go

@@ -72,16 +72,29 @@ jobs:
       - name: Sign it with cosign
         run: |
           set -euo pipefail
-          cosign sign-blob --yes \
+          cosign sign-blob --yes --new-bundle-format \
             --bundle "$RUNNER_TEMP/registry.json.sigstore.json" \
             "$RUNNER_TEMP/registry.json" > /dev/null
 
       # The verifier takes the trusted root as bytes and never fetches it, so
-      # the test must supply one. Generating it here from cosign's TUF view is
-      # what makes a Sigstore root rotation visible: when the embedded root in a
-      # release goes stale, this file stops matching and the run fails.
-      - name: Create the trusted root
-        run: cosign trusted-root create > "$RUNNER_TEMP/trusted-root.json"
+      # the test must supply one. Taking it from cosign's TUF view is what makes
+      # a Sigstore root rotation visible: when the embedded root in a release
+      # goes stale, this file stops matching and the run fails.
+      #
+      # `cosign initialize` fetches the public-good TUF repository and caches
+      # trusted_root.json as a target. Note this is not `cosign trusted-root
+      # create`: that subcommand *builds* a root out of material passed in
+      # --fulcio/--rekor/--ctfe flags, and with no flags emits an empty root
+      # with zero transparency logs — which verifies nothing.
+      - name: Fetch the trusted root
+        run: |
+          set -euo pipefail
+          cosign initialize
+          # The cache path is namespaced by TUF mirror host, so locate the
+          # target rather than hardcoding the current mirror's name.
+          root="$(find "$HOME/.sigstore/root" -name trusted_root.json -print -quit)"
+          test -n "$root"
+          cp "$root" "$RUNNER_TEMP/trusted-root.json"
 
       # The identity is this workflow's own SAN, built from the values GitHub
       # sets rather than hardcoded, so a rename or a ref change cannot silently

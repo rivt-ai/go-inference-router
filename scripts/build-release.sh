@@ -66,7 +66,10 @@ openssl pkeyutl -sign -rawin -inkey "$SIGNING_KEY" -in "$manifest" | base64 -w0 
 # workflow's id-token permission, which release.yml already requests for build
 # attestation. No key material is involved.
 if [[ "${INFROUTER_SIGSTORE:-0}" == "1" ]]; then
-  cosign sign-blob --yes \
+  # --new-bundle-format writes the Sigstore protobuf bundle. Without it cosign
+  # emits its legacy {base64Signature,cert,rekorBundle} JSON, which sigstore-go
+  # — and so router/verify/sigstore — cannot parse.
+  cosign sign-blob --yes --new-bundle-format \
     --bundle "$manifest.sigstore.json" \
     "$manifest" > /dev/null
 fi

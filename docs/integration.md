@@ -177,6 +177,32 @@ Both fields of `Policy` are required. A bundle that verifies cryptographically
 but names no identity proves only that *somebody* signed it, since anyone can
 obtain a certificate; pin the workflow **and its ref**. See ADR 0007.
 
+`TrustedRootJSON` is the Sigstore trust anchor, and the verifier never fetches
+it: supplying it is what makes the trust decision yours rather than a network
+lookup's. Obtain the public-good root once, at build time, and embed the bytes:
+
+```sh
+cosign initialize   # fetches the TUF repository into ~/.sigstore
+find ~/.sigstore/root -name trusted_root.json -exec cp {} trusted_root.json \;
+```
+
+```go
+//go:embed trusted_root.json
+var trustedRoot []byte
+```
+
+Do **not** reach for `cosign trusted-root create`. Despite the name it does not
+fetch anything — it *builds* a root out of material passed in its `--fulcio`,
+`--rekor` and `--ctfe` flags, and with no flags emits a root containing no
+transparency logs and no certificate authorities at all. Verification then fails
+with `not enough verified log entries from transparency log: 0 < 1`. It fails
+closed, so nothing is trusted that should not be, but the message does not point
+at its cause.
+
+The root is dated material: it stops verifying when Sigstore rotates its keys,
+which no code change announces. Refresh the embedded copy on a schedule rather
+than at the point a release stops installing.
+
 **Credential references** need a resolver, and it is deliberately not defaulted:
 
 ```go

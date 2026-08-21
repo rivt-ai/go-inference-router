@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	llm "github.com/rivt-ai/go-inference-router"
@@ -236,11 +235,11 @@ func NewInstaller(cfg config.Config, verifier install.Verifier, observer llm.Obs
 		}
 		verifier = keyed
 	}
-	dir, err := os.UserCacheDir()
+	dir, err := install.DefaultCacheDir()
 	if err != nil {
 		return nil, err
 	}
-	return install.New(url, verifier, filepath.Join(dir, "go-inference-router", "providers"), nil, observer), nil
+	return install.New(url, verifier, dir, nil, observer), nil
 }
 
 // keyVerifier builds the Ed25519 verifier from the configured or compiled-in

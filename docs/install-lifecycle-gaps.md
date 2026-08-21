@@ -41,5 +41,8 @@ a side effect.
 
 ## Not covered here
 
-Module tagging remains open — `git tag` is still empty and the submodule `replace` directives are
-intact, so external hosts cannot resolve these modules. That is a release task, tracked separately.
+Retention policy, and whatever an approving host wants to show a user before it approves. Both are
+host decisions this package deliberately does not make.
+
+Module tagging is done: releases are tagged through v0.6.0, submodules require the root module by
+version, and no `replace` directives remain, so external hosts resolve these modules normally.

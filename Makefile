@@ -1,4 +1,4 @@
-.PHONY: test test-race test-submodules build e2e sigstore-e2e lint lint-ci lint-submodules verify fmt tidy release sync-module-versions check-module-versions
+.PHONY: test test-race test-submodules build e2e sigstore-e2e sync-trusted-root lint lint-ci lint-submodules verify fmt tidy release sync-module-versions check-module-versions
 
 CUSTOM_LINT ?= ./custom-golangci-lint
 CUSTOM_LINT_ABS := $(abspath $(CUSTOM_LINT))
@@ -45,6 +45,19 @@ e2e:
 # test that quietly does not run looks exactly like one that passed.
 sigstore-e2e:
 	cd router && go test -tags=sigstoree2e -count=1 -timeout=10m -v ./verify/sigstore/...
+
+# The trusted root embedded by sigstore.ReleasePolicy expires when Sigstore
+# rotates its own roots, which no code change announces — the weekly Sigstore
+# E2E run is what reports it, and this is the fix.
+#
+# `cosign initialize` fetches the TUF repository and caches trusted_root.json as
+# a target. Not `cosign trusted-root create`: that builds a root from material
+# passed in flags, and with none emits one with no transparency logs at all.
+sync-trusted-root:
+	cosign initialize
+	cp "$$(find "$$HOME/.sigstore/root" -name trusted_root.json -print -quit)" \
+		router/verify/sigstore/trusted_root.json
+	cd router && go test -count=1 -run ReleasePolicy ./verify/sigstore/
 
 # lint uses the custom build (which carries the goclocbudget plugin) when it is
 # present, and falls back to a stock golangci-lint otherwise — that fallback

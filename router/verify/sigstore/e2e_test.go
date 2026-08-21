@@ -139,3 +139,33 @@ func TestIdentityMatchesReleaseWorkflowShape(t *testing.T) {
 			identity)
 	}
 }
+
+// TestEmbeddedTrustedRootVerifiesRealBundle is what makes the weekly run
+// meaningful for shipped binaries. The tests above verify against a root
+// fetched moments earlier, which can never be stale; hosts verify against the
+// bytes embedded at build time, which go stale silently when Sigstore rotates
+// its roots — no code change announces it. Running the same real bundle through
+// ReleasePolicy is what turns that rotation into a failed build.
+//
+// The identity is still the E2E workflow's own rather than ReleasePolicy's, so
+// this checks the embedded root, not the pinned release identity.
+func TestEmbeddedTrustedRootVerifiesRealBundle(t *testing.T) {
+	p := sigstore.ReleasePolicy()
+	p.Identity = os.Getenv("SIGSTORE_E2E_IDENTITY")
+	p.Issuer = os.Getenv("SIGSTORE_E2E_ISSUER")
+	if p.Issuer == "" || p.Identity == "" {
+		t.Fatal("SIGSTORE_E2E_ISSUER and SIGSTORE_E2E_IDENTITY must both be set")
+	}
+
+	verifier, err := sigstore.NewVerifier(p)
+	if err != nil {
+		t.Fatalf("NewVerifier with the embedded trusted root: %v", err)
+	}
+	err = verifier.VerifyManifest(context.Background(),
+		fixture(t, "SIGSTORE_E2E_MANIFEST"), fixture(t, "SIGSTORE_E2E_BUNDLE"))
+	if err != nil {
+		t.Fatalf("the embedded trusted root rejected a genuine bundle, "+
+			"which usually means Sigstore rotated its roots and it needs "+
+			"`make sync-trusted-root`: %v", err)
+	}
+}

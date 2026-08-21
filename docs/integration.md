@@ -154,18 +154,18 @@ for them:
 ```go
 import "github.com/rivt-ai/go-inference-router/router/verify/sigstore"
 
-verifier, err := sigstore.NewVerifier(sigstore.Policy{
-    Issuer:   "https://token.actions.githubusercontent.com",
-    Identity: "https://github.com/rivt-ai/go-inference-router" +
-        "/.github/workflows/release.yml@refs/heads/main",
-    TrustedRootJSON: trustedRoot, // embedded, not fetched
-})
+verifier, err := sigstore.NewVerifier(sigstore.ReleasePolicy())
 
 r, err := router.Open(ctx, router.Options{
     Config:           &cfg,
     RegistryVerifier: verifier,
 })
 ```
+
+`ReleasePolicy` carries the pinned issuer, this repository's release workflow
+identity, and an embedded Sigstore trusted root, so verifying the official
+registry needs no setup. A host verifying **its own** registry builds a `Policy`
+itself; see the trusted-root note below.
 
 The manifest is then authenticated by *who published it* — the release workflow's
 OIDC identity, recorded in a public transparency log — rather than by a key you
@@ -179,7 +179,9 @@ obtain a certificate; pin the workflow **and its ref**. See ADR 0007.
 
 `TrustedRootJSON` is the Sigstore trust anchor, and the verifier never fetches
 it: supplying it is what makes the trust decision yours rather than a network
-lookup's. Obtain the public-good root once, at build time, and embed the bytes:
+lookup's. `ReleasePolicy` embeds one already — this note is for a host pinning
+its own registry. Obtain the public-good root once, at build time, and embed the
+bytes:
 
 ```sh
 cosign initialize   # fetches the TUF repository into ~/.sigstore
@@ -235,6 +237,40 @@ Useful surface:
 | `StopProvider(ctx, id)` | stop one provider; next request reopens it |
 | `Close()` | stop everything |
 | `Installer()` | the provider installer, or nil when no trust root is configured |
+
+### Installing a provider binary
+
+SDK-backed providers (`anthropic`, `openai`, `bedrock`) run as separate
+processes and need their binary present. `openai-compatible` does not — it runs
+in-process and needs nothing installed.
+
+Installation is two calls, and the split is the point: `Plan` verifies the
+signed registry and describes what *would* be installed; nothing is downloaded
+until `Approve` consumes that plan.
+
+```go
+plan, err := r.Installer().Plan(ctx, "anthropic", "")   // "" selects newest stable
+// plan.Source, plan.Size, plan.SHA256, plan.Expires — show these to whoever approves
+path, err := r.Installer().Approve(ctx, plan.ID)
+```
+
+A plan is one-use, expires after ten minutes, and lives in the installer's
+memory — so `Plan` and `Approve` must happen in the same process. Over the
+runtime protocol they are `llm.v1.install.plan` and `llm.v1.install.approve`,
+with the same rule: one stdio session.
+
+Pass `""` for the version unless you have a reason not to. The registry offers
+the artifacts of the newest release, so an older pinned version generally
+resolves to nothing; compatibility is enforced by the artifact's protocol field
+rather than by matching versions to your own build.
+
+`Installer()` returns nil when no trust root is configured, which is also when
+unverified `PATH` lookup turns on. If installation is meant to work, check for
+nil rather than discovering it as a missing provider later.
+
+`Available(ctx, provider)` reports cached versions and whether the registry has
+something newer, without creating a plan. `Remove(provider, version)` reclaims
+one exact cached version.
 | `Reload(ctx)` | re-read the configuration `Loader` supplied |
 
 **What this mode costs.** The `router` package itself pulls no third-party

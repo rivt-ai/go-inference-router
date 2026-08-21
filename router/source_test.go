@@ -3,11 +3,14 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	llm "github.com/rivt-ai/go-inference-router"
 	"github.com/rivt-ai/go-inference-router/router/config"
@@ -75,5 +78,33 @@ func TestDefaultSourceScopesEnvironmentAndForwardsMaps(t *testing.T) {
 	}
 	if _, nested := captured.Initialize.Config["options"]; nested {
 		t.Fatalf("options were not flattened: %#v", captured.Initialize.Config)
+	}
+}
+
+type countingTransport struct{ calls int }
+
+func (t *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	t.calls++
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)),
+	}, nil
+}
+
+func TestDefaultSourceThreadsTransportIntoInProcessProvider(t *testing.T) {
+	transport := &countingTransport{}
+	source := DefaultSource{HTTPClient: &http.Client{Transport: transport}, StallTimeout: time.Second}
+	provider, err := source.Open(context.Background(), "compat", config.Provider{
+		Type: "openai-compatible", BaseURL: "https://example.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Chat(context.Background(), llm.Request{Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if transport.calls != 1 {
+		t.Fatalf("custom transport calls = %d, want 1", transport.calls)
 	}
 }

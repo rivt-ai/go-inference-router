@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	llm "github.com/rivt-ai/go-inference-router"
 	"github.com/rivt-ai/go-inference-router/router/config"
@@ -80,6 +82,17 @@ type Options struct {
 	// Observer receives lifecycle, request, and install observations.
 	Observer llm.Observer
 
+	// HTTPClient, when non-nil, carries requests for in-process providers
+	// (proxies, instrumentation). Provider Processes bring their own
+	// transport and are unaffected.
+	HTTPClient *http.Client
+
+	// HTTPTimeout bounds a whole in-process request; StallTimeout bounds the
+	// wait for the next byte of an in-process streaming response. Zero keeps
+	// the provider defaults.
+	HTTPTimeout  time.Duration
+	StallTimeout time.Duration
+
 	// Stderr receives Provider Process stderr. Defaults to os.Stderr.
 	Stderr io.Writer
 }
@@ -104,6 +117,7 @@ func Open(ctx context.Context, options Options) (*Router, error) {
 	source := DefaultSource{
 		Secrets: options.Secrets, Stderr: stderr, Observer: options.Observer,
 		AllowPathLookup: pathLookupAllowed(cfg, installer),
+		HTTPClient:      options.HTTPClient, HTTPTimeout: options.HTTPTimeout, StallTimeout: options.StallTimeout,
 	}
 	if installer != nil {
 		source.Locator = installer

@@ -2,6 +2,8 @@ package router
 
 import (
 	"crypto/ed25519"
+	"encoding/base64"
+	"errors"
 	"testing"
 
 	"github.com/rivt-ai/go-inference-router/router/config"
@@ -89,5 +91,30 @@ func TestSecretsRequiredWhenConfigReferencesThem(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("secret references resolved without a resolver")
+	}
+}
+
+func TestSourceBuildsCarryTheReleaseTrustRoot(t *testing.T) {
+	if registryPublicKey != ReleasePublicKey {
+		t.Fatalf("source default = %q, want ReleasePublicKey", registryPublicKey)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(ReleasePublicKey)
+	if err != nil || len(decoded) != ed25519.PublicKeySize {
+		t.Fatalf("ReleasePublicKey must be base64 Ed25519: %v", err)
+	}
+	installer, err := NewInstaller(config.Config{}, nil, nil)
+	if err != nil || installer == nil {
+		t.Fatalf("default build must have an installer: %v, %v", installer, err)
+	}
+}
+
+func TestRequireInstallerIsLoudWithoutTrustRoot(t *testing.T) {
+	r := &Router{}
+	if _, err := r.RequireInstaller(); !errors.Is(err, ErrNoTrustRoot) {
+		t.Fatalf("err = %v, want ErrNoTrustRoot", err)
+	}
+	r.installer = install.New("https://example.invalid/r.json", nil, t.TempDir(), nil, nil)
+	if got, err := r.RequireInstaller(); err != nil || got == nil {
+		t.Fatalf("installer = %v, %v", got, err)
 	}
 }

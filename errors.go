@@ -3,6 +3,7 @@ package inference
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -62,7 +63,24 @@ func (e *Error) Error() string {
 	if e.Message != "" {
 		parts += ": " + e.Message
 	}
+	if cause := e.causeText(); cause != "" {
+		parts += ": " + cause
+	}
 	return parts
+}
+
+// causeText returns the wrapped cause when it adds information: present, and
+// not already contained in the message. Without it a transport failure with no
+// message prints as a bare "transport", which tells an operator nothing.
+func (e *Error) causeText() string {
+	if e.Err == nil {
+		return ""
+	}
+	cause := e.Err.Error()
+	if cause == "" || strings.Contains(e.Message, cause) {
+		return ""
+	}
+	return cause
 }
 
 func (e *Error) Unwrap() error { return e.Err }

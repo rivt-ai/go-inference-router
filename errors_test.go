@@ -35,10 +35,29 @@ func TestRetryable(t *testing.T) {
 func TestErrorMessageAndCause(t *testing.T) {
 	cause := errors.New("dial tcp")
 	err := &Error{Kind: KindAuth, Provider: "llama", Status: 401, Message: "bad key", Err: cause}
-	if got, want := err.Error(), "llama: auth (HTTP 401): bad key"; got != want {
+	if got, want := err.Error(), "llama: auth (HTTP 401): bad key: dial tcp"; got != want {
 		t.Fatalf("Error() = %q, want %q", got, want)
 	}
 	if !errors.Is(err, cause) {
 		t.Fatal("errors.Is should reach the wrapped cause")
+	}
+}
+
+func TestErrorTextIncludesCauseOnlyWhenItAddsInformation(t *testing.T) {
+	cases := []struct {
+		name string
+		err  Error
+		want string
+	}{
+		{"message only", Error{Kind: KindAuth, Provider: "p", Message: "bad key"}, "p: auth: bad key"},
+		{"cause only", Error{Kind: KindTransport, Provider: "p", Err: errors.New("dial tcp 1.2.3.4:443: connection refused")}, "p: transport: dial tcp 1.2.3.4:443: connection refused"},
+		{"message and cause", Error{Kind: KindTransport, Provider: "p", Message: "request failed", Err: errors.New("connection refused")}, "p: transport: request failed: connection refused"},
+		{"cause contained in message", Error{Kind: KindTransport, Provider: "p", Message: "request failed: connection refused", Err: errors.New("connection refused")}, "p: transport: request failed: connection refused"},
+		{"neither", Error{Kind: KindTransport}, "llm: transport"},
+	}
+	for _, tc := range cases {
+		if got := tc.err.Error(); got != tc.want {
+			t.Errorf("%s: Error() = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

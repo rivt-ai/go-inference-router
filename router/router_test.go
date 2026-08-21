@@ -324,3 +324,31 @@ func TestRouterSelectsProfilesAndKeepsDiscoveryInformational(t *testing.T) {
 		t.Fatalf("raw model error = %v", err)
 	}
 }
+
+// A non-empty request model must win over the profile pin while the profile
+// keeps supplying provider and options; hosts switch models at runtime this
+// way instead of mutating configuration through Apply.
+func TestChatRequestModelOverridesProfilePin(t *testing.T) {
+	provider := &fakeProvider{}
+	r, err := router.New(config.Config{
+		Version:   1,
+		Providers: map[string]config.Provider{"openai": {Type: "openai"}},
+		Models: map[string]config.ModelProfile{
+			"gpt": {Provider: "openai", Model: "gpt-5", Options: map[string]any{"verbosity": "low"}},
+		},
+	}, source{provider: provider}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := r.Chat(context.Background(), "gpt", llm.Request{Model: "gpt-5-mini"}, nil)
+	if err != nil || resp.Model != "gpt-5-mini" {
+		t.Fatalf("override Chat = %#v, %v", resp, err)
+	}
+	if provider.request.Extra["verbosity"] != "low" {
+		t.Fatalf("profile options must still apply: %#v", provider.request.Extra)
+	}
+	resp, err = r.Chat(context.Background(), "gpt", llm.Request{}, nil)
+	if err != nil || resp.Model != "gpt-5" {
+		t.Fatalf("pinned Chat = %#v, %v", resp, err)
+	}
+}

@@ -217,6 +217,12 @@ The profile ID (`"sonnet"`) is the only model identifier your agent needs to
 know. `Router.Chat` fills in `request.Model` from the profile and merges the
 profile's `options` into `request.Extra`.
 
+A host that picks models at runtime sets `request.Model` itself: a non-empty
+value overrides the profile's pinned model, while the profile keeps supplying
+the provider, options, and secrets. `Discover` results are usable as override
+values. This replaces the old workaround of synthesizing a profile per model
+and calling `Apply` on every switch.
+
 Useful surface:
 
 | Call | Purpose |

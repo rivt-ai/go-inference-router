@@ -281,6 +281,12 @@ func (r *Router) Capabilities(ctx context.Context, profileID string) (llm.Capabi
 }
 
 // Chat resolves profileID and runs a streaming or non-streaming model call.
+//
+// A non-empty request.Model overrides the profile's pinned model; the profile
+// still supplies the provider, options, and secrets. This is how a host that
+// picks models at runtime switches without mutating configuration — before it,
+// every such host synthesized a profile per model and called Apply on each
+// switch.
 func (r *Router) Chat(
 	ctx context.Context,
 	profileID string,
@@ -294,8 +300,10 @@ func (r *Router) Chat(
 		return nil, err
 	}
 	defer done()
-	started.ProviderID, started.Model = profile.Provider, profile.Model
-	request.Model = profile.Model
+	if request.Model == "" {
+		request.Model = profile.Model
+	}
+	started.ProviderID, started.Model = profile.Provider, request.Model
 	request.Extra = merge(profile.Options, request.Extra)
 	if onEvent == nil {
 		response, err := provider.Chat(callCtx, request)
@@ -334,14 +342,16 @@ func (r *Router) Embed(ctx context.Context, profileID string, request llm.Embedd
 		return nil, err
 	}
 	defer done()
-	started.ProviderID, started.Model = profile.Provider, profile.Model
+	if request.Model == "" {
+		request.Model = profile.Model
+	}
+	started.ProviderID, started.Model = profile.Provider, request.Model
 	embedder, ok := provider.(llm.Embedder)
 	if !ok {
 		err := &llm.Error{Kind: llm.KindInvalidRequest, Provider: provider.Name(), Message: "profile does not support embeddings"}
 		r.finished(ctx, started, err, llm.Usage{}, 0)
 		return nil, err
 	}
-	request.Model = profile.Model
 	vectors, err := embedder.Embed(callCtx, request)
 	r.finished(ctx, started, err, llm.Usage{}, 0)
 	return vectors, err

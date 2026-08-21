@@ -56,14 +56,13 @@ type Options struct {
 	// repository ships; Config avoids that question entirely.
 	Loader func(context.Context) (config.Config, error)
 
-	// Secrets resolves credential references.
+	// Secrets resolves credential references. Nil defaults to EnvResolver,
+	// which handles env and file references with the standard library alone.
 	//
-	// Deliberately not defaulted: the OS keychain and encrypted store live in
-	// router/secret, and importing them costs age, go-keyring, and dbus. A host
-	// that wants them opts in with secret.DefaultResolver(), which is also the
-	// point at which it accepts those dependencies. Leaving this nil is correct
-	// for a configuration with no secrets: reference resolution then fails with
-	// a message naming this field.
+	// Keychain and encrypted-store references are deliberately not defaulted:
+	// they live in router/secret, and importing them costs age, go-keyring,
+	// and dbus. A host that wants them opts in with secret.DefaultResolver(),
+	// which is also the point at which it accepts those dependencies.
 	Secrets SecretResolver
 
 	// RegistryVerifier authenticates the provider registry manifest.
@@ -114,8 +113,12 @@ func Open(ctx context.Context, options Options) (*Router, error) {
 	if err != nil {
 		return nil, err
 	}
+	secrets := options.Secrets
+	if secrets == nil {
+		secrets = EnvResolver{}
+	}
 	source := DefaultSource{
-		Secrets: options.Secrets, Stderr: stderr, Observer: options.Observer,
+		Secrets: secrets, Stderr: stderr, Observer: options.Observer,
 		AllowPathLookup: pathLookupAllowed(cfg, installer),
 		HTTPClient:      options.HTTPClient, HTTPTimeout: options.HTTPTimeout, StallTimeout: options.StallTimeout,
 	}

@@ -39,32 +39,13 @@ type RetryPolicy struct {
 // Do runs fn until it succeeds, exhausts MaxAttempts, fails with a
 // non-retryable error, or ctx ends. It returns fn's last error.
 func (p RetryPolicy) Do(ctx context.Context, fn func(ctx context.Context) error) error {
-	attempts := p.MaxAttempts
-	if attempts < 1 {
-		attempts = 1
-	}
-	base := p.BaseDelay
-	if base <= 0 {
-		base = 500 * time.Millisecond
-	}
-	maxDelay := p.MaxDelay
-	if maxDelay <= 0 {
-		maxDelay = 30 * time.Second
-	}
-	delay := base
+	attempts, delay, maxDelay := p.settings()
 	var err error
 	for attempt := 1; ; attempt++ {
 		if err = fn(ctx); err == nil || attempt >= attempts || !p.retryable(err) {
 			return err
 		}
-		wait := delay
-		if wait > maxDelay {
-			wait = maxDelay
-		}
-		var llmErr *Error
-		if errors.As(err, &llmErr) && llmErr.RetryAfter > wait {
-			wait = llmErr.RetryAfter
-		}
+		wait := retryWait(err, delay, maxDelay)
 		EmitObservation(ctx, p.Observer, Observation{
 			Operation: ObservationRetry, Phase: ObservationStarted, Time: time.Now().UTC(),
 			Attempt: attempt, Duration: wait, Err: err,
@@ -78,6 +59,35 @@ func (p RetryPolicy) Do(ctx context.Context, fn func(ctx context.Context) error)
 		}
 		delay *= 2
 	}
+}
+
+// settings normalizes the zero values to the documented defaults.
+func (p RetryPolicy) settings() (attempts int, base, maxDelay time.Duration) {
+	attempts, base, maxDelay = p.MaxAttempts, p.BaseDelay, p.MaxDelay
+	if attempts < 1 {
+		attempts = 1
+	}
+	if base <= 0 {
+		base = 500 * time.Millisecond
+	}
+	if maxDelay <= 0 {
+		maxDelay = 30 * time.Second
+	}
+	return attempts, base, maxDelay
+}
+
+// retryWait caps the backoff at maxDelay, then lets a larger RetryAfter hint
+// win: the provider's ask is authoritative.
+func retryWait(err error, delay, maxDelay time.Duration) time.Duration {
+	wait := delay
+	if wait > maxDelay {
+		wait = maxDelay
+	}
+	var llmErr *Error
+	if errors.As(err, &llmErr) && llmErr.RetryAfter > wait {
+		wait = llmErr.RetryAfter
+	}
+	return wait
 }
 
 func (p RetryPolicy) retryable(err error) bool {

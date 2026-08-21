@@ -6,17 +6,29 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"net/http"
 	"os"
-	"path/filepath"
+	"time"
 
 	llm "github.com/rivt-ai/go-inference-router"
 	"github.com/rivt-ai/go-inference-router/router/config"
 	"github.com/rivt-ai/go-inference-router/router/install"
 )
 
-// registryURL and registryPublicKey are the release trust root. The public key
-// is injected into release builds with
+// ReleasePublicKey is the base64-encoded Ed25519 key that signs the release
+// provider registry. It is the default trust root for every build, including
+// hosts that compile this module from source: without a source-level default,
+// each host had to hardcode the key, and forgetting it silently disabled
+// managed installation and permitted unsigned binaries found on PATH.
+//
+// Rotation still ships as a new version of this module, the same trade the
+// release binaries make.
+const ReleasePublicKey = "HacFtdv26C7okmVONuNM6V7LZHt8M/h2ZvuwQ+oqVYg="
+
+// registryURL and registryPublicKey are the release trust root. Release builds
+// may override the key with
 // -ldflags "-X github.com/rivt-ai/go-inference-router/router.registryPublicKey=..."
+// (setting it empty disables the default trust root, the development case).
 //
 // They live here rather than in the command so that the shipped binary and an
 // embedding host share one trust policy instead of each deriving its own. A
@@ -24,7 +36,7 @@ import (
 // unmanaged binaries found on PATH.
 var (
 	registryURL       = "https://github.com/rivt-ai/go-inference-router/releases/latest/download/providers.json"
-	registryPublicKey string
+	registryPublicKey = ReleasePublicKey
 )
 
 // Options configures Open.
@@ -54,14 +66,13 @@ type Options struct {
 	// repository ships; Config avoids that question entirely.
 	Loader func(context.Context) (config.Config, error)
 
-	// Secrets resolves credential references.
+	// Secrets resolves credential references. Nil defaults to EnvResolver,
+	// which handles env and file references with the standard library alone.
 	//
-	// Deliberately not defaulted: the OS keychain and encrypted store live in
-	// router/secret, and importing them costs age, go-keyring, and dbus. A host
-	// that wants them opts in with secret.DefaultResolver(), which is also the
-	// point at which it accepts those dependencies. Leaving this nil is correct
-	// for a configuration with no secrets: reference resolution then fails with
-	// a message naming this field.
+	// Keychain and encrypted-store references are deliberately not defaulted:
+	// they live in router/secret, and importing them costs age, go-keyring,
+	// and dbus. A host that wants them opts in with secret.DefaultResolver(),
+	// which is also the point at which it accepts those dependencies.
 	Secrets SecretResolver
 
 	// RegistryVerifier authenticates the provider registry manifest.
@@ -79,6 +90,17 @@ type Options struct {
 
 	// Observer receives lifecycle, request, and install observations.
 	Observer llm.Observer
+
+	// HTTPClient, when non-nil, carries requests for in-process providers
+	// (proxies, instrumentation). Provider Processes bring their own
+	// transport and are unaffected.
+	HTTPClient *http.Client
+
+	// HTTPTimeout bounds a whole in-process request; StallTimeout bounds the
+	// wait for the next byte of an in-process streaming response. Zero keeps
+	// the provider defaults.
+	HTTPTimeout  time.Duration
+	StallTimeout time.Duration
 
 	// Stderr receives Provider Process stderr. Defaults to os.Stderr.
 	Stderr io.Writer
@@ -101,9 +123,14 @@ func Open(ctx context.Context, options Options) (*Router, error) {
 	if err != nil {
 		return nil, err
 	}
+	secrets := options.Secrets
+	if secrets == nil {
+		secrets = EnvResolver{}
+	}
 	source := DefaultSource{
-		Secrets: options.Secrets, Stderr: stderr, Observer: options.Observer,
+		Secrets: secrets, Stderr: stderr, Observer: options.Observer,
 		AllowPathLookup: pathLookupAllowed(cfg, installer),
+		HTTPClient:      options.HTTPClient, HTTPTimeout: options.HTTPTimeout, StallTimeout: options.StallTimeout,
 	}
 	if installer != nil {
 		source.Locator = installer
@@ -135,10 +162,25 @@ func openConfig(ctx context.Context, options Options) (config.Config, func(conte
 	return cfg, options.Loader, nil
 }
 
+// ErrNoTrustRoot reports that no registry trust root is configured, so managed
+// provider installation is disabled. With ReleasePublicKey as the source-level
+// default this only happens when a build deliberately blanks the key.
+var ErrNoTrustRoot = errors.New("no registry trust root is configured; managed provider installation is disabled")
+
 // Installer reports the provider installer, or nil when no registry trust root
-// is configured. A build without an injected key and without a configured key
-// has no installer.
+// is configured. RequireInstaller is the loud form.
 func (r *Router) Installer() *install.Installer { return r.installer }
+
+// RequireInstaller reports the provider installer, or ErrNoTrustRoot when the
+// build has none. Hosts that offer managed installation should use this over
+// Installer: a nil installer silently falls back to unmanaged binaries found
+// on PATH, which is the opposite of what a user asking to install expects.
+func (r *Router) RequireInstaller() (*install.Installer, error) {
+	if r.installer == nil {
+		return nil, ErrNoTrustRoot
+	}
+	return r.installer, nil
+}
 
 // Reload re-reads the configuration Open was given. It fails for a Router that
 // was constructed from an in-memory configuration, which has no file to reread.
@@ -193,11 +235,11 @@ func NewInstaller(cfg config.Config, verifier install.Verifier, observer llm.Obs
 		}
 		verifier = keyed
 	}
-	dir, err := os.UserCacheDir()
+	dir, err := install.DefaultCacheDir()
 	if err != nil {
 		return nil, err
 	}
-	return install.New(url, verifier, filepath.Join(dir, "go-inference-router", "providers"), nil, observer), nil
+	return install.New(url, verifier, dir, nil, observer), nil
 }
 
 // keyVerifier builds the Ed25519 verifier from the configured or compiled-in

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -42,6 +43,16 @@ type DefaultSource struct {
 	// AllowPathLookup permits unmanaged go-inference-router-provider-* binaries from PATH.
 	AllowPathLookup bool
 
+	// HTTPClient, when non-nil, carries requests for in-process providers.
+	// Provider Processes bring their own transport and are unaffected.
+	HTTPClient *http.Client
+	// HTTPTimeout bounds a whole in-process request. Zero keeps the
+	// provider's default.
+	HTTPTimeout time.Duration
+	// StallTimeout bounds the wait for the next byte of an in-process
+	// streaming response. Zero keeps the provider's default.
+	StallTimeout time.Duration
+
 	startProcess func(context.Context, providerproc.Options) (llm.Provider, error)
 }
 
@@ -64,6 +75,7 @@ func (s DefaultSource) Open(ctx context.Context, id string, definition config.Pr
 		return openaicompat.New(openaicompat.Config{
 			Name: id, BaseURL: definition.BaseURL, APIKey: secrets["api_key"], Headers: definition.Headers,
 			MetadataPath: stringOption(definition.Options, "metadata_path"),
+			HTTPClient:   s.HTTPClient, HTTPTimeout: s.HTTPTimeout, StallTimeout: s.StallTimeout,
 		}), nil
 	}
 	path, ok, err := s.path(ctx, id, definition)

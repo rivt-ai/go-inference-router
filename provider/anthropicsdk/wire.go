@@ -10,7 +10,7 @@ import (
 
 // buildParams translates a neutral request into Anthropic SDK parameters.
 func (c *Client) buildParams(req inference.Request) (anthropic.MessageNewParams, error) {
-	system, messages := encodeMessages(req.Messages)
+	system, systemCached, messages := encodeMessages(req.Messages)
 	params := anthropic.MessageNewParams{
 		Model:         anthropic.Model(req.Model),
 		MaxTokens:     c.maxTokens(req),
@@ -20,7 +20,14 @@ func (c *Client) buildParams(req inference.Request) (anthropic.MessageNewParams,
 		ToolChoice:    encodeToolChoice(req.ToolChoice),
 	}
 	if len(system) > 0 {
-		params.System = []anthropic.TextBlockParam{{Text: strings.Join(system, "\n\n")}}
+		block := anthropic.TextBlockParam{Text: strings.Join(system, "\n\n")}
+		// System text is joined into one block, so any breakpoint among the
+		// system messages becomes a breakpoint after all of them. Anthropic
+		// caches tools before system, so this covers the tool definitions too.
+		if systemCached {
+			block.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		}
+		params.System = []anthropic.TextBlockParam{block}
 	}
 	if req.Temperature != nil {
 		params.Temperature = anthropic.Float(*req.Temperature)
@@ -64,8 +71,9 @@ func (c *Client) encodeFormat(req inference.Request) (*anthropic.JSONOutputForma
 // role), and a run of consecutive tool messages is coalesced into one user
 // message, because splitting parallel tool results across messages teaches the
 // model to stop making parallel calls.
-func encodeMessages(messages []inference.Message) ([]string, []anthropic.MessageParam) {
+func encodeMessages(messages []inference.Message) ([]string, bool, []anthropic.MessageParam) {
 	var system []string
+	var systemCached bool
 	out := make([]anthropic.MessageParam, 0, len(messages))
 	var pendingResults []anthropic.ContentBlockParamUnion
 
@@ -80,24 +88,82 @@ func encodeMessages(messages []inference.Message) ([]string, []anthropic.Message
 		if msg.Role == inference.RoleTool {
 			pendingResults = append(pendingResults,
 				anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, false))
+			if cacheBreakpoint(msg) {
+				markBlock(&pendingResults[len(pendingResults)-1])
+			}
 			continue
 		}
 		flush()
-		switch msg.Role {
-		case inference.RoleSystem:
+		if msg.Role == inference.RoleSystem {
 			if msg.Content != "" {
 				system = append(system, msg.Content)
 			}
-		case inference.RoleAssistant:
-			if blocks := encodeAssistant(msg); len(blocks) > 0 {
-				out = append(out, anthropic.NewAssistantMessage(blocks...))
-			}
-		default:
-			out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+			systemCached = systemCached || cacheBreakpoint(msg)
+			continue
 		}
+		out = appendTurn(out, msg)
 	}
 	flush()
-	return system, out
+	return system, systemCached, out
+}
+
+// appendTurn appends the assistant or user message for msg, marking a cache
+// breakpoint on its final block when the message asks for one.
+func appendTurn(out []anthropic.MessageParam, msg inference.Message) []anthropic.MessageParam {
+	if msg.Role == inference.RoleAssistant {
+		blocks := encodeAssistant(msg)
+		if len(blocks) == 0 {
+			return out
+		}
+		out = append(out, anthropic.NewAssistantMessage(blocks...))
+	} else {
+		out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+	}
+	if cacheBreakpoint(msg) {
+		markLast(out)
+	}
+	return out
+}
+
+// cacheBreakpoint reports whether any block of msg asks for a prompt-cache
+// breakpoint. This adapter encodes a message from its text projection rather
+// than block by block, so the flag is read from the message as a whole.
+func cacheBreakpoint(msg inference.Message) bool {
+	for _, block := range msg.ContentBlocks() {
+		if block.CacheBreakpoint {
+			return true
+		}
+	}
+	return false
+}
+
+// markLast puts the breakpoint on the final block of the final message, which
+// is where Anthropic reads it: cache_control is a field on a content block and
+// caches everything before it.
+func markLast(messages []anthropic.MessageParam) {
+	if len(messages) == 0 {
+		return
+	}
+	blocks := messages[len(messages)-1].Content
+	if len(blocks) == 0 {
+		return
+	}
+	markBlock(&blocks[len(blocks)-1])
+}
+
+// markBlock sets cache_control on the block kinds that carry it.
+func markBlock(block *anthropic.ContentBlockParamUnion) {
+	control := anthropic.NewCacheControlEphemeralParam()
+	switch {
+	case block.OfText != nil:
+		block.OfText.CacheControl = control
+	case block.OfImage != nil:
+		block.OfImage.CacheControl = control
+	case block.OfToolUse != nil:
+		block.OfToolUse.CacheControl = control
+	case block.OfToolResult != nil:
+		block.OfToolResult.CacheControl = control
+	}
 }
 
 // encodeAssistant emits a text block only when there is text: the API rejects

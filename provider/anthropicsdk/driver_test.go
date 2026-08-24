@@ -500,3 +500,56 @@ func TestCancellationIsClassified(t *testing.T) {
 		t.Fatalf("kind = %q, want canceled (err: %v)", inference.KindOf(err), err)
 	}
 }
+
+func TestCacheBreakpointsAreEncoded(t *testing.T) {
+	body := captureBody(t, inference.Request{
+		Model: "m",
+		Messages: []inference.Message{
+			inference.SystemMessage("rules").Cached(),
+			inference.UserMessage("hello").Cached(),
+			inference.AssistantMessage("", inference.ToolCall{ID: "t1", Name: "w", Arguments: `{}`}),
+			inference.ToolMessage("t1", "cold").Cached(),
+		},
+	}, okReply)
+
+	system, _ := body["system"].([]any)
+	if len(system) != 1 {
+		t.Fatalf("system = %v, want one text block", body["system"])
+	}
+	if control := system[0].(map[string]any)["cache_control"]; control == nil {
+		t.Errorf("system block = %v, want cache_control", system[0])
+	}
+
+	messages, _ := body["messages"].([]any)
+	if len(messages) != 3 {
+		t.Fatalf("got %d messages, want user/assistant/tool-results: %v", len(messages), messages)
+	}
+	for _, index := range []int{0, 2} {
+		blocks, _ := messages[index].(map[string]any)["content"].([]any)
+		last, _ := blocks[len(blocks)-1].(map[string]any)
+		if last["cache_control"] == nil {
+			t.Errorf("message %d last block = %v, want cache_control", index, last)
+		}
+	}
+	assistant, _ := messages[1].(map[string]any)["content"].([]any)
+	if last, _ := assistant[len(assistant)-1].(map[string]any); last["cache_control"] != nil {
+		t.Errorf("unmarked assistant block = %v, want no cache_control", last)
+	}
+}
+
+func TestNoCacheBreakpointLeavesRequestUnchanged(t *testing.T) {
+	body := captureBody(t, inference.Request{
+		Model:    "m",
+		Messages: []inference.Message{inference.SystemMessage("rules"), inference.UserMessage("hello")},
+	}, okReply)
+
+	system, _ := body["system"].([]any)
+	if control := system[0].(map[string]any)["cache_control"]; control != nil {
+		t.Errorf("system block = %v, want no cache_control", system[0])
+	}
+	messages, _ := body["messages"].([]any)
+	blocks, _ := messages[0].(map[string]any)["content"].([]any)
+	if last, _ := blocks[0].(map[string]any); last["cache_control"] != nil {
+		t.Errorf("user block = %v, want no cache_control", last)
+	}
+}

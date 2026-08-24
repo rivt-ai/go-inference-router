@@ -96,6 +96,29 @@ if l, ok := provider.(llm.ModelLister); ok     { /* list models */ }
 if c, ok := provider.(llm.CapabilityReporter); ok { /* ask, don't guess */ }
 ```
 
+### Prompt caching
+
+Providers that cache automatically (OpenAI and OpenAI-compatible endpoints) need
+nothing from you. Anthropic and Bedrock cache only what you mark, so say where
+the reusable prefix ends:
+
+```go
+req := llm.Request{
+    Messages: []llm.Message{
+        llm.SystemMessage(systemPrompt).Cached(), // caches tools + system prompt
+        llm.UserMessage("hello"),
+    },
+}
+```
+
+`Cached` sets `ContentBlock.CacheBreakpoint` on the message's last block. The
+Anthropic adapter turns that into `cache_control`, the Bedrock adapter into a
+`cachePoint` block; adapters with automatic caching ignore it, so a host can set
+it unconditionally. Caching pays off only if the prefix before the breakpoint is
+byte-stable across turns — that ordering is the host's job, not the router's.
+
+Every adapter reports what was cached back in `Usage.CachedPromptTokens`.
+
 ---
 
 ## Mode 2 — Embedded runtime

@@ -94,25 +94,35 @@ func encodeMessages(messages []inference.Message) ([]string, bool, []anthropic.M
 			continue
 		}
 		flush()
-		switch msg.Role {
-		case inference.RoleSystem:
+		if msg.Role == inference.RoleSystem {
 			if msg.Content != "" {
 				system = append(system, msg.Content)
 			}
 			systemCached = systemCached || cacheBreakpoint(msg)
-		case inference.RoleAssistant:
-			if blocks := encodeAssistant(msg); len(blocks) > 0 {
-				out = append(out, anthropic.NewAssistantMessage(blocks...))
-			}
-		default:
-			out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+			continue
 		}
-		if msg.Role != inference.RoleSystem && cacheBreakpoint(msg) {
-			markLast(out)
-		}
+		out = appendTurn(out, msg)
 	}
 	flush()
 	return system, systemCached, out
+}
+
+// appendTurn appends the assistant or user message for msg, marking a cache
+// breakpoint on its final block when the message asks for one.
+func appendTurn(out []anthropic.MessageParam, msg inference.Message) []anthropic.MessageParam {
+	if msg.Role == inference.RoleAssistant {
+		blocks := encodeAssistant(msg)
+		if len(blocks) == 0 {
+			return out
+		}
+		out = append(out, anthropic.NewAssistantMessage(blocks...))
+	} else {
+		out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+	}
+	if cacheBreakpoint(msg) {
+		markLast(out)
+	}
+	return out
 }
 
 // cacheBreakpoint reports whether any block of msg asks for a prompt-cache

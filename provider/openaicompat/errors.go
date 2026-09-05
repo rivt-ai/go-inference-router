@@ -26,11 +26,15 @@ const toolCallParseMarker = "tool call arguments"
 // returning an HTML error page cannot flood a log line.
 const maxErrorBody = 8 << 10
 
+// wireError is the error object OpenAI-compatible servers send, either as the
+// body of a non-2xx response or inside an SSE data frame when generation
+// fails after the headers are out. Code is a string from OpenAI and a number
+// from llama.cpp, so it is decoded loosely.
 type wireError struct {
-	Error struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
+	Error *struct {
+		Message string          `json:"message"`
+		Type    string          `json:"type"`
+		Code    json.RawMessage `json:"code"`
 	} `json:"error"`
 }
 
@@ -39,13 +43,36 @@ type wireError struct {
 func (c *Client) httpError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	message := errorMessage(body)
-	kind := driver.KindForStatus(resp.StatusCode)
-	if strings.Contains(strings.ToLower(message), toolCallParseMarker) {
-		kind = inference.KindToolCallParse
-	}
-	err := c.base.Errf(kind, resp.StatusCode, message, nil)
+	err := c.base.Errf(classify(resp.StatusCode, message), resp.StatusCode, message, nil)
 	err.RetryAfter = retryAfter(resp.Header.Get("Retry-After"))
 	return err
+}
+
+// classify maps an HTTP status and error message to a kind.
+func classify(status int, message string) inference.Kind {
+	if strings.Contains(strings.ToLower(message), toolCallParseMarker) {
+		return inference.KindToolCallParse
+	}
+	return driver.KindForStatus(status)
+}
+
+// frameError reports an error object carried inside an SSE data frame. A
+// server that fails after the response headers are out — llama.cpp on a
+// grammar or sampler fault mid-generation — delivers the failure this way on
+// an HTTP 200, so it must be surfaced from the frame or the stream ends as a
+// silently truncated success. A frame without a numeric code is reported as a
+// server error, which is what the frame means.
+func (c *Client) frameError(frame []byte) error {
+	var wire wireError
+	if err := json.Unmarshal(frame, &wire); err != nil || wire.Error == nil {
+		return nil
+	}
+	status, err := strconv.Atoi(string(wire.Error.Code))
+	if err != nil || status < 400 {
+		status = http.StatusInternalServerError
+	}
+	message := errorMessage(frame)
+	return c.base.Errf(classify(status, message), status, message, nil)
 }
 
 // retryAfter reads the delay-seconds form of the Retry-After header, which is
@@ -62,7 +89,7 @@ func retryAfter(value string) time.Duration {
 
 func errorMessage(body []byte) string {
 	var wire wireError
-	if err := json.Unmarshal(body, &wire); err == nil && wire.Error.Message != "" {
+	if err := json.Unmarshal(body, &wire); err == nil && wire.Error != nil && wire.Error.Message != "" {
 		if wire.Error.Type != "" {
 			return wire.Error.Type + ": " + wire.Error.Message
 		}

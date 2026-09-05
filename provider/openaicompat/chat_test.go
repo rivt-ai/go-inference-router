@@ -366,3 +366,35 @@ func TestCanceledContextIsClassified(t *testing.T) {
 		t.Fatalf("kind = %q, want canceled (err: %v)", inference.KindOf(err), err)
 	}
 }
+
+// A server that fails mid-generation sends the error inside a data frame on
+// an HTTP 200. The stream must end in a classified, retryable error rather
+// than a truncated success.
+func TestChatStreamErrorFrameIsClassified(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"error\":{\"code\":500,\"message\":\"Unexpected empty grammar stack after accepting piece: >< (1798)\",\"type\":\"server_error\"}}\n\n")
+	})
+
+	resp, err := client.ChatStream(context.Background(), inference.Request{Model: "m"}, func(inference.Event) error { return nil })
+	if resp != nil || !inference.IsKind(err, inference.KindUnavailable) || !inference.Retryable(err) {
+		t.Fatalf("resp = %v, err = %v (kind %q), want retryable unavailable", resp, err, inference.KindOf(err))
+	}
+	if !strings.Contains(err.Error(), "grammar stack") {
+		t.Fatalf("error message lost: %v", err)
+	}
+}
+
+// A mid-stream tool-call parse failure keeps its distinguishing kind, as it
+// does on the non-streaming path.
+func TestChatStreamErrorFrameToolCallParse(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"error\":{\"code\":500,\"message\":\"Failed to parse tool call arguments as JSON\",\"type\":\"server_error\"}}\n\n")
+	})
+	_, err := client.ChatStream(context.Background(), inference.Request{Model: "m"}, func(inference.Event) error { return nil })
+	if !inference.IsKind(err, inference.KindToolCallParse) {
+		t.Fatalf("kind = %q, want tool_call_parse (err: %v)", inference.KindOf(err), err)
+	}
+}

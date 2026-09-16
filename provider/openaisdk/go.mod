@@ -3,7 +3,7 @@
 // github.com/rivt-ai/go-inference-router never pulls a vendor SDK in.
 module github.com/rivt-ai/go-inference-router/provider/openaisdk
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.6
 

@@ -1,15 +1,15 @@
 module github.com/rivt-ai/go-inference-router/examples/embedded-router
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.6
 
 require (
-	github.com/rivt-ai/go-inference-router v0.6.0
+	github.com/rivt-ai/go-inference-router v0.7.0
 	github.com/rivt-ai/go-inference-router/router v0.0.0
 )
 
-require golang.org/x/mod v0.39.0 // indirect
+require golang.org/x/mod v0.41.0 // indirect
 
 replace github.com/rivt-ai/go-inference-router => ../..
 

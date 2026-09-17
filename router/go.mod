@@ -10,7 +10,7 @@ require (
 	github.com/rivt-ai/go-inference-router v0.7.0
 	github.com/zalando/go-keyring v0.2.8
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
-	golang.org/x/mod v0.39.0
+	golang.org/x/mod v0.41.0
 )
 
 require (

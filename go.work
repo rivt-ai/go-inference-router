@@ -4,7 +4,7 @@
 //
 // Not part of any published module zip — the proxy serves each module
 // directory on its own.
-go 1.26
+go 1.26.0
 
 toolchain go1.26.6
 

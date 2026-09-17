@@ -26,7 +26,7 @@ const toolCallParseMarker = "tool call arguments"
 // returning an HTML error page cannot flood a log line.
 const maxErrorBody = 8 << 10
 
-type wireError *struct {
+type wireError struct {
 	Error *struct {
 		Message string          `json:"message"`
 		Type    string          `json:"type"`

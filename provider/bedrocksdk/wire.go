@@ -23,6 +23,9 @@ func buildInput(request llm.Request) (*bedrockruntime.ConverseInput, error) { //
 			return nil, errors.New("bedrock system instructions must be text")
 		}
 		input.System = append(input.System, &types.SystemContentBlockMemberText{Value: instruction.Text})
+		if instruction.CacheBreakpoint {
+			input.System = append(input.System, systemCachePoint())
+		}
 	}
 	for _, message := range request.Messages {
 		if message.Role == llm.RoleSystem {
@@ -31,6 +34,9 @@ func buildInput(request llm.Request) (*bedrockruntime.ConverseInput, error) { //
 					return nil, errors.New("bedrock system messages must be text")
 				}
 				input.System = append(input.System, &types.SystemContentBlockMemberText{Value: block.Text})
+				if block.CacheBreakpoint {
+					input.System = append(input.System, systemCachePoint())
+				}
 			}
 			continue
 		}
@@ -75,12 +81,27 @@ func buildInput(request llm.Request) (*bedrockruntime.ConverseInput, error) { //
 	return input, nil
 }
 
+// systemCachePoint and messageCachePoint mark a prompt-cache breakpoint. Bedrock
+// spells one as its own content block rather than as a field on the block it
+// follows, so a marked block becomes two entries.
+func systemCachePoint() types.SystemContentBlock {
+	return &types.SystemContentBlockMemberCachePoint{Value: types.CachePointBlock{Type: types.CachePointTypeDefault}}
+}
+
+func messageCachePoint() types.ContentBlock {
+	return &types.ContentBlockMemberCachePoint{Value: types.CachePointBlock{Type: types.CachePointTypeDefault}}
+}
+
 func messageBlocks(message llm.Message) ([]types.ContentBlock, error) { //nolint:gocognit,gocyclo // each content type maps directly to one SDK type
 	if message.Role == llm.RoleTool {
-		return []types.ContentBlock{&types.ContentBlockMemberToolResult{Value: types.ToolResultBlock{
+		converted := []types.ContentBlock{&types.ContentBlockMemberToolResult{Value: types.ToolResultBlock{
 			ToolUseId: aws.String(message.ToolCallID),
 			Content:   []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{Value: message.Content}},
-		}}}, nil
+		}}}
+		if cacheBreakpoint(message) {
+			converted = append(converted, messageCachePoint())
+		}
+		return converted, nil
 	}
 	var converted []types.ContentBlock
 	for _, block := range message.ContentBlocks() {
@@ -135,8 +156,23 @@ func messageBlocks(message llm.Message) ([]types.ContentBlock, error) { //nolint
 		default:
 			return nil, fmt.Errorf("unsupported content block %q", block.Type)
 		}
+		if block.CacheBreakpoint && len(converted) > 0 {
+			converted = append(converted, messageCachePoint())
+		}
 	}
 	return converted, nil
+}
+
+// cacheBreakpoint reports whether any block of message asks for a breakpoint.
+// The tool-result path collapses a message into one block, so the flag is read
+// from the message as a whole there.
+func cacheBreakpoint(message llm.Message) bool {
+	for _, block := range message.ContentBlocks() {
+		if block.CacheBreakpoint {
+			return true
+		}
+	}
+	return false
 }
 
 func inferenceConfig(request llm.Request) *types.InferenceConfiguration {

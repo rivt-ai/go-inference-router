@@ -4,7 +4,7 @@
 // github.com/rivt-ai/go-inference-router alone never does.
 module github.com/rivt-ai/go-inference-router/provider/anthropicsdk
 
-go 1.26.0
+go 1.26
 
 toolchain go1.26.6
 

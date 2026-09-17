@@ -25,3 +25,17 @@ func TestCapabilitiesReportModalities(t *testing.T) {
 		t.Fatalf("unexpected modalities: %#v", caps.InputModalities)
 	}
 }
+
+func TestCachedMarksTheLastBlock(t *testing.T) {
+	original := llm.SystemMessage("rules")
+	marked := original.Cached()
+	if blocks := marked.Blocks; len(blocks) != 1 || !blocks[0].CacheBreakpoint {
+		t.Fatalf("blocks = %#v, want one block marked", marked.Blocks)
+	}
+	if original.Blocks[0].CacheBreakpoint {
+		t.Error("Cached mutated the message it was called on")
+	}
+	if empty := (llm.Message{Role: llm.RoleUser}).Cached(); len(empty.Blocks) != 0 {
+		t.Errorf("empty message gained blocks: %#v", empty)
+	}
+}

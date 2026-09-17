@@ -63,6 +63,16 @@ type ContentBlock struct {
 	ToolCall   *ToolCall   `json:"tool_call,omitempty"`
 	ToolResult *ToolResult `json:"tool_result,omitempty"`
 	Reasoning  *Reasoning  `json:"reasoning,omitempty"`
+	// CacheBreakpoint asks providers with explicit prompt caching to cache the
+	// prompt prefix through this block. Providers that cache automatically
+	// ignore it, so a host can set it unconditionally.
+	CacheBreakpoint bool `json:"cache_breakpoint,omitempty"`
+}
+
+// Cached marks block as a prompt-cache breakpoint. See ContentBlock.CacheBreakpoint.
+func Cached(block ContentBlock) ContentBlock {
+	block.CacheBreakpoint = true
+	return block
 }
 
 // Text creates a plain text content block.
@@ -141,6 +151,18 @@ func message(role Role, content string) Message {
 		msg.Blocks = []ContentBlock{Text(content)}
 	}
 	return msg
+}
+
+// Cached marks m's last content block as a prompt-cache breakpoint, so a
+// provider with explicit caching caches the prompt prefix through m.
+func (m Message) Cached() Message {
+	blocks := m.ContentBlocks()
+	if len(blocks) == 0 {
+		return m
+	}
+	m.Blocks = append([]ContentBlock(nil), blocks...)
+	m.Blocks[len(m.Blocks)-1].CacheBreakpoint = true
+	return m
 }
 
 // ContentBlocks returns the typed representation of m, projecting legacy

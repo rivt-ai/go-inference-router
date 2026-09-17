@@ -55,7 +55,11 @@ func (c *Client) ChatStream(
 	var handlerErr error
 	scanErr := transport.ScanSSE(resp.Body, func(frame []byte) error {
 		guard.Reset()
-		if err := acc.addFrame(frame, onEvent); err != nil {
+		err := c.streamError(frame)
+		if err == nil {
+			err = acc.addFrame(frame, onEvent)
+		}
+		if err != nil {
 			handlerErr = err
 			return err
 		}

@@ -27,10 +27,10 @@ const toolCallParseMarker = "tool call arguments"
 const maxErrorBody = 8 << 10
 
 type wireError struct {
-	Error struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
+	Error *struct {
+		Message string          `json:"message"`
+		Type    string          `json:"type"`
+		Code    json.RawMessage `json:"code"`
 	} `json:"error"`
 }
 
@@ -38,14 +38,18 @@ type wireError struct {
 // body is consumed.
 func (c *Client) httpError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+	err := c.providerError(resp.StatusCode, body)
+	err.RetryAfter = retryAfter(resp.Header.Get("Retry-After"))
+	return err
+}
+
+func (c *Client) providerError(status int, body []byte) *inference.Error {
 	message := errorMessage(body)
-	kind := driver.KindForStatus(resp.StatusCode)
+	kind := driver.KindForStatus(status)
 	if strings.Contains(strings.ToLower(message), toolCallParseMarker) {
 		kind = inference.KindToolCallParse
 	}
-	err := c.base.Errf(kind, resp.StatusCode, message, nil)
-	err.RetryAfter = retryAfter(resp.Header.Get("Retry-After"))
-	return err
+	return c.base.Errf(kind, status, message, nil)
 }
 
 // retryAfter reads the delay-seconds form of the Retry-After header, which is
@@ -62,11 +66,35 @@ func retryAfter(value string) time.Duration {
 
 func errorMessage(body []byte) string {
 	var wire wireError
-	if err := json.Unmarshal(body, &wire); err == nil && wire.Error.Message != "" {
+	if err := json.Unmarshal(body, &wire); err == nil && wire.Error != nil && wire.Error.Message != "" {
 		if wire.Error.Type != "" {
 			return wire.Error.Type + ": " + wire.Error.Message
 		}
 		return wire.Error.Message
 	}
 	return strings.TrimSpace(string(body))
+}
+
+// Providers can report errors after HTTP headers have already committed 200.
+// An error frame is not a completion chunk, even after partial content.
+func (c *Client) streamError(frame []byte) error {
+	var wire wireError
+	if err := json.Unmarshal(frame, &wire); err != nil {
+		return c.base.Errf(inference.KindProtocol, 0, "malformed stream chunk", err)
+	}
+	if wire.Error == nil {
+		return nil
+	}
+	status, _ := strconv.Atoi(strings.Trim(string(wire.Error.Code), "\""))
+	if status < 400 || status > 599 {
+		status = map[string]int{
+			"invalid_request_error": http.StatusBadRequest,
+			"authentication_error":  http.StatusUnauthorized,
+			"permission_error":      http.StatusForbidden,
+			"rate_limit_error":      http.StatusTooManyRequests,
+			"server_error":          http.StatusInternalServerError,
+			"overloaded_error":      http.StatusServiceUnavailable,
+		}[wire.Error.Type]
+	}
+	return c.providerError(status, frame)
 }

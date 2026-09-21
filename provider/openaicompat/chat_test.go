@@ -366,3 +366,37 @@ func TestCanceledContextIsClassified(t *testing.T) {
 		t.Fatalf("kind = %q, want canceled (err: %v)", inference.KindOf(err), err)
 	}
 }
+
+// An assistant turn's reasoning must survive the round trip: decoded from
+// reasoning_content and sent back under the same key when it is replayed, so a
+// thinking model sees its own earlier reasoning on the next request.
+func TestChatEncodesAssistantReasoning(t *testing.T) {
+	var body chatRequest
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		_, _ = io.WriteString(w, `{"id":"c1","model":"m","choices":[{"finish_reason":"stop",
+			"message":{"content":"hi","reasoning_content":"because"}}]}`)
+	})
+
+	resp, err := client.Chat(context.Background(), inference.Request{
+		Model: "m",
+		Messages: []inference.Message{
+			inference.UserMessage("yo"),
+			{Role: inference.RoleAssistant, Content: "hi", Reasoning: "because"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Message.Reasoning != "because" {
+		t.Fatalf("decoded reasoning = %q, want %q", resp.Message.Reasoning, "because")
+	}
+	if got := body.Messages[1].Reasoning; got != "because" {
+		t.Fatalf("encoded reasoning = %q, want %q", got, "because")
+	}
+	if got := body.Messages[0].Reasoning; got != "" {
+		t.Fatalf("user message carried reasoning %q", got)
+	}
+}

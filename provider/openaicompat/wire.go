@@ -47,6 +47,10 @@ type wireMessage struct {
 	Name       string         `json:"name,omitempty"`
 	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
+	// Reasoning replays an assistant turn's own thinking back to the provider.
+	// Servers that do not read it ignore the field, so it is always sent when
+	// the caller kept it.
+	Reasoning string `json:"reasoning_content,omitempty"`
 }
 
 type wireToolCall struct {
@@ -196,6 +200,7 @@ func encodeMessages(messages []inference.Message) []wireMessage {
 			Content:    msg.Content,
 			Name:       msg.Name,
 			ToolCallID: msg.ToolCallID,
+			Reasoning:  msg.Reasoning,
 		}
 		for _, call := range msg.ToolCalls {
 			wire.ToolCalls = append(wire.ToolCalls, wireToolCall{

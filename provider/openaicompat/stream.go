@@ -38,6 +38,9 @@ func (a *accumulator) addFrame(frame []byte, onEvent func(inference.Event) error
 		a.resp.Model = chunk.Model
 	}
 	setExtra(&a.resp, "system_fingerprint", chunk.SystemFingerprint)
+	// llama.cpp sends timings on the final chunk, often one with no choices,
+	// so it is read before the empty-choices return below.
+	setExtra(&a.resp, "timings", chunk.Timings)
 	if chunk.Usage != nil {
 		a.resp.Usage = decodeUsage(*chunk.Usage)
 	}
@@ -49,6 +52,7 @@ func (a *accumulator) addFrame(frame []byte, onEvent func(inference.Event) error
 		a.resp.FinishReason = decodeFinishReason(choice.FinishReason)
 	}
 	a.addLogprobs(choice.Logprobs)
+	setExtra(&a.resp, "stop_reason", choice.StopReason)
 	if err := a.addText(choice.Delta.Content, cmp.Or(choice.Delta.Reasoning, choice.Delta.ReasoningField), onEvent); err != nil {
 		return err
 	}

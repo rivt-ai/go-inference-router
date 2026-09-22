@@ -107,3 +107,44 @@ func TestChatEncodesReasoningForBothServerDialects(t *testing.T) {
 		t.Fatalf("user message carried reasoning: %#v", user)
 	}
 }
+
+func TestChatDecodesTimingsAndStopReason(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"model":"m","timings":{"prompt_ms":12.5,"predicted_ms":40,"predicted_per_second":86.2,"cache_n":900},
+			"choices":[{"finish_reason":"stop","stop_reason":"</done>","message":{"content":"hi"}}]}`)
+	})
+	resp, err := client.Chat(context.Background(), inference.Request{Model: "m", Messages: []inference.Message{inference.UserMessage("yo")}})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if tm, _ := resp.Extra["timings"].(json.RawMessage); !strings.Contains(string(tm), `"cache_n":900`) {
+		t.Fatalf("timings = %s", tm)
+	}
+	if sr, _ := resp.Extra["stop_reason"].(json.RawMessage); string(sr) != `"</done>"` {
+		t.Fatalf("stop_reason = %s", sr)
+	}
+}
+
+// llama.cpp puts timings on the final stream chunk, which may carry no choices.
+func TestChatStreamReadsTimingsFromChoicelessChunk(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, frame := range []string{
+			`{"model":"m","choices":[{"delta":{"content":"ok"},"finish_reason":"stop","stop_reason":null}]}`,
+			`{"choices":[],"timings":{"predicted_per_second":80}}`,
+		} {
+			_, _ = io.WriteString(w, "data: "+frame+"\n\n")
+		}
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	})
+	resp, err := client.ChatStream(context.Background(), inference.Request{Model: "m"}, nil)
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if tm, _ := resp.Extra["timings"].(json.RawMessage); !strings.Contains(string(tm), "predicted_per_second") {
+		t.Fatalf("timings = %s", tm)
+	}
+	if _, ok := resp.Extra["stop_reason"]; ok {
+		t.Fatalf("null stop_reason should not be recorded: %#v", resp.Extra)
+	}
+}

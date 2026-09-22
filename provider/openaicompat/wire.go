@@ -94,11 +94,13 @@ type wireUsage struct {
 }
 
 type chatResponse struct {
-	ID                string `json:"id"`
-	Model             string `json:"model"`
-	SystemFingerprint string `json:"system_fingerprint"`
+	ID                string          `json:"id"`
+	Model             string          `json:"model"`
+	SystemFingerprint string          `json:"system_fingerprint"`
+	Timings           json.RawMessage `json:"timings"`
 	Choices           []struct {
 		FinishReason string          `json:"finish_reason"`
+		StopReason   json.RawMessage `json:"stop_reason"`
 		Logprobs     json.RawMessage `json:"logprobs"`
 		Message      struct {
 			Content        string         `json:"content"`
@@ -111,11 +113,13 @@ type chatResponse struct {
 }
 
 type chatChunk struct {
-	ID                string `json:"id"`
-	Model             string `json:"model"`
-	SystemFingerprint string `json:"system_fingerprint"`
+	ID                string          `json:"id"`
+	Model             string          `json:"model"`
+	SystemFingerprint string          `json:"system_fingerprint"`
+	Timings           json.RawMessage `json:"timings"`
 	Choices           []struct {
 		FinishReason string          `json:"finish_reason"`
+		StopReason   json.RawMessage `json:"stop_reason"`
 		Logprobs     json.RawMessage `json:"logprobs"`
 		Delta        struct {
 			Content        string         `json:"content"`
@@ -288,8 +292,10 @@ func decodeResponse(body chatResponse) *inference.Response {
 		out.Message.Reasoning = cmp.Or(choice.Message.Reasoning, choice.Message.ReasoningField)
 		out.Message.ToolCalls = decodeToolCalls(choice.Message.ToolCalls)
 		setExtra(out, "logprobs", choice.Logprobs)
+		setExtra(out, "stop_reason", choice.StopReason)
 	}
 	setExtra(out, "system_fingerprint", body.SystemFingerprint)
+	setExtra(out, "timings", body.Timings)
 	return out
 }
 

@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"cmp"
 	"encoding/json"
 
 	"github.com/rivt-ai/go-inference-router"
@@ -51,6 +52,10 @@ type wireMessage struct {
 	// Servers that do not read it ignore the field, so it is always sent when
 	// the caller kept it.
 	Reasoning string `json:"reasoning_content,omitempty"`
+	// ReasoningField repeats it under "reasoning": current vLLM reads only
+	// that key on input, llama.cpp and most chat templates read
+	// reasoning_content first, so a template sees it once either way.
+	ReasoningField string `json:"reasoning,omitempty"`
 }
 
 type wireToolCall struct {
@@ -83,31 +88,44 @@ type wireUsage struct {
 	PromptTokensDetails struct {
 		CachedTokens int64 `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
+	CompletionTokensDetails struct {
+		ReasoningTokens int64 `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
 }
 
 type chatResponse struct {
-	ID      string `json:"id"`
-	Model   string `json:"model"`
-	Choices []struct {
-		FinishReason string `json:"finish_reason"`
+	ID                string          `json:"id"`
+	Model             string          `json:"model"`
+	SystemFingerprint string          `json:"system_fingerprint"`
+	Timings           json.RawMessage `json:"timings"`
+	Choices           []struct {
+		FinishReason string          `json:"finish_reason"`
+		StopReason   json.RawMessage `json:"stop_reason"`
+		Logprobs     json.RawMessage `json:"logprobs"`
 		Message      struct {
-			Content   string         `json:"content"`
-			Reasoning string         `json:"reasoning_content"`
-			ToolCalls []wireToolCall `json:"tool_calls"`
+			Content        string         `json:"content"`
+			Reasoning      string         `json:"reasoning_content"`
+			ReasoningField string         `json:"reasoning"`
+			ToolCalls      []wireToolCall `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
 	Usage wireUsage `json:"usage"`
 }
 
 type chatChunk struct {
-	ID      string `json:"id"`
-	Model   string `json:"model"`
-	Choices []struct {
-		FinishReason string `json:"finish_reason"`
+	ID                string          `json:"id"`
+	Model             string          `json:"model"`
+	SystemFingerprint string          `json:"system_fingerprint"`
+	Timings           json.RawMessage `json:"timings"`
+	Choices           []struct {
+		FinishReason string          `json:"finish_reason"`
+		StopReason   json.RawMessage `json:"stop_reason"`
+		Logprobs     json.RawMessage `json:"logprobs"`
 		Delta        struct {
-			Content   string         `json:"content"`
-			Reasoning string         `json:"reasoning_content"`
-			ToolCalls []wireToolCall `json:"tool_calls"`
+			Content        string         `json:"content"`
+			Reasoning      string         `json:"reasoning_content"`
+			ReasoningField string         `json:"reasoning"`
+			ToolCalls      []wireToolCall `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
 	Usage *wireUsage `json:"usage"`
@@ -196,11 +214,12 @@ func encodeMessages(messages []inference.Message) []wireMessage {
 	out := make([]wireMessage, 0, len(messages))
 	for _, msg := range messages {
 		wire := wireMessage{
-			Role:       string(msg.Role),
-			Content:    msg.Content,
-			Name:       msg.Name,
-			ToolCallID: msg.ToolCallID,
-			Reasoning:  msg.Reasoning,
+			Role:           string(msg.Role),
+			Content:        msg.Content,
+			Name:           msg.Name,
+			ToolCallID:     msg.ToolCallID,
+			Reasoning:      msg.Reasoning,
+			ReasoningField: msg.Reasoning,
 		}
 		for _, call := range msg.ToolCalls {
 			wire.ToolCalls = append(wire.ToolCalls, wireToolCall{
@@ -253,6 +272,7 @@ func decodeUsage(usage wireUsage) inference.Usage {
 		CompletionTokens:   usage.CompletionTokens,
 		TotalTokens:        usage.TotalTokens,
 		CachedPromptTokens: usage.PromptTokensDetails.CachedTokens,
+		ReasoningTokens:    usage.CompletionTokensDetails.ReasoningTokens,
 	}
 }
 
@@ -267,10 +287,42 @@ func decodeResponse(body chatResponse) *inference.Response {
 	}
 	if len(body.Choices) > 0 {
 		choice := body.Choices[0]
-		out.FinishReason = inference.FinishReason(choice.FinishReason)
+		out.FinishReason = decodeFinishReason(choice.FinishReason)
 		out.Message.Content = choice.Message.Content
-		out.Message.Reasoning = choice.Message.Reasoning
+		out.Message.Reasoning = cmp.Or(choice.Message.Reasoning, choice.Message.ReasoningField)
 		out.Message.ToolCalls = decodeToolCalls(choice.Message.ToolCalls)
+		setExtra(out, "logprobs", choice.Logprobs)
+		setExtra(out, "stop_reason", choice.StopReason)
 	}
+	setExtra(out, "system_fingerprint", body.SystemFingerprint)
+	setExtra(out, "timings", body.Timings)
 	return out
+}
+
+// decodeFinishReason keeps the provider's value, folding the legacy
+// "function_call" into tool_calls so callers switching on FinishToolCalls see it.
+func decodeFinishReason(reason string) inference.FinishReason {
+	if reason == "function_call" {
+		return inference.FinishToolCalls
+	}
+	return inference.FinishReason(reason)
+}
+
+// setExtra records an optional response field under Extra, skipping empty
+// values and a JSON null so a server that omits it leaves Extra untouched.
+func setExtra(out *inference.Response, key string, value any) {
+	switch v := value.(type) {
+	case string:
+		if v == "" {
+			return
+		}
+	case json.RawMessage:
+		if len(v) == 0 || string(v) == "null" {
+			return
+		}
+	}
+	if out.Extra == nil {
+		out.Extra = map[string]any{}
+	}
+	out.Extra[key] = value
 }

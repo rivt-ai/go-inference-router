@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"cmp"
 	"encoding/json"
 	"strings"
 
@@ -17,6 +18,7 @@ type accumulator struct {
 	byIndex  map[int]int
 	emitted  int
 	sawChunk bool
+	logprobs []json.RawMessage
 }
 
 func newAccumulator() *accumulator {
@@ -35,6 +37,7 @@ func (a *accumulator) addFrame(frame []byte, onEvent func(inference.Event) error
 	if chunk.Model != "" {
 		a.resp.Model = chunk.Model
 	}
+	setExtra(&a.resp, "system_fingerprint", chunk.SystemFingerprint)
 	if chunk.Usage != nil {
 		a.resp.Usage = decodeUsage(*chunk.Usage)
 	}
@@ -43,13 +46,30 @@ func (a *accumulator) addFrame(frame []byte, onEvent func(inference.Event) error
 	}
 	choice := chunk.Choices[0]
 	if choice.FinishReason != "" {
-		a.resp.FinishReason = inference.FinishReason(choice.FinishReason)
+		a.resp.FinishReason = decodeFinishReason(choice.FinishReason)
 	}
-	if err := a.addText(choice.Delta.Content, choice.Delta.Reasoning, onEvent); err != nil {
+	a.addLogprobs(choice.Logprobs)
+	if err := a.addText(choice.Delta.Content, cmp.Or(choice.Delta.Reasoning, choice.Delta.ReasoningField), onEvent); err != nil {
 		return err
 	}
 	a.addToolDeltas(choice.Delta.ToolCalls)
 	return nil
+}
+
+// addLogprobs concatenates each chunk's logprobs.content entries, which
+// streaming servers send per token, into one Extra["logprobs"] on the result.
+func (a *accumulator) addLogprobs(raw json.RawMessage) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return
+	}
+	var chunk struct {
+		Content []json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(raw, &chunk) != nil || len(chunk.Content) == 0 {
+		return
+	}
+	a.logprobs = append(a.logprobs, chunk.Content...)
+	setExtra(&a.resp, "logprobs", map[string]any{"content": a.logprobs})
 }
 
 func (a *accumulator) addText(content, reasoning string, onEvent func(inference.Event) error) error {

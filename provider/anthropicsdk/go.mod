@@ -10,7 +10,7 @@ toolchain go1.26.6
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.75.0
-	github.com/rivt-ai/go-inference-router v0.7.2
+	github.com/rivt-ai/go-inference-router v0.8.0
 )
 
 require (

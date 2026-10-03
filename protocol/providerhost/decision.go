@@ -2,6 +2,7 @@ package providerhost
 
 import (
 	"context"
+	"errors"
 
 	llm "github.com/rivt-ai/go-inference-router"
 	"github.com/rivt-ai/go-inference-router/protocol/jsonrpc"
@@ -11,6 +12,11 @@ import (
 func (h *host) decide(ctx context.Context, params []byte) (any, error) {
 	var request llmv1.ProviderDecideRequest
 	if err := jsonrpc.Decode(params, &request); err != nil {
+		// Keep typed rejections (images, streaming) typed for callers.
+		var typed *llm.Error
+		if errors.As(err, &typed) {
+			return nil, llmv1.DomainError(err)
+		}
 		return nil, jsonrpc.InvalidParams(err)
 	}
 	ctx = context.WithValue(ctx, correlationKey{}, request.CorrelationID)

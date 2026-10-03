@@ -96,7 +96,7 @@ func (r *Router) Apply(ctx context.Context, next config.Config) error {
 	}
 	var retired map[string]*providerEntry
 	for id, entry := range r.open {
-		definition, ok := decisionDefinition(next, id)
+		definition, ok := next.Providers[id]
 		if ok && reflect.DeepEqual(entry.definition, definition) {
 			continue
 		}
@@ -429,7 +429,7 @@ func (r *Router) providerEntry(ctx context.Context, id string) (*providerEntry, 
 		r.mu.Unlock()
 		return nil, routerClosedError()
 	}
-	definition, ok := decisionDefinition(r.cfg, id)
+	definition, ok := r.cfg.Providers[id]
 	if !ok {
 		r.mu.Unlock()
 		return nil, &llm.Error{Kind: llm.KindInvalidRequest, Provider: "router", Message: fmt.Sprintf("unknown provider %q", id)}

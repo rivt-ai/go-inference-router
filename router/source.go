@@ -74,9 +74,9 @@ func (s DefaultSource) Open(ctx context.Context, id string, definition config.Pr
 	if definition.Type == "openai-compatible" {
 		return openaicompat.New(openaicompat.Config{
 			Name: id, BaseURL: definition.BaseURL, APIKey: secrets["api_key"], Headers: definition.Headers,
-			DecisionModels: decisionModels(definition),
-			MetadataPath:   stringOption(definition.Options, "metadata_path"),
-			HTTPClient:     s.HTTPClient, HTTPTimeout: s.HTTPTimeout, StallTimeout: s.StallTimeout,
+			AllDecisionModels: true,
+			MetadataPath:      stringOption(definition.Options, "metadata_path"),
+			HTTPClient:        s.HTTPClient, HTTPTimeout: s.HTTPTimeout, StallTimeout: s.StallTimeout,
 		}), nil
 	}
 	path, ok, err := s.path(ctx, id, definition)

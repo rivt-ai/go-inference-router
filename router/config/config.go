@@ -106,7 +106,7 @@ func (p Provider) validate(id string) error {
 
 func reservedProviderKey(key string) bool {
 	switch key {
-	case "type", "version", "path", "base_url", "headers", "options", "secrets", "decision_models":
+	case "type", "version", "path", "base_url", "headers", "options", "secrets":
 		return true
 	default:
 		return false

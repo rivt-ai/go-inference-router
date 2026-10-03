@@ -269,8 +269,8 @@ Call `r.Decide(ctx, "local-decider", request)` with an
 a conflicting request model is rejected. Disabled profiles and unsupported
 providers return `KindInvalidRequest` before executing a backend decision.
 `Capabilities.Decisions` reports effective support for the selected profile.
-Changing enabled decision models on reload refreshes the compatible adapter
-and cancels its active calls, just like changing its provider definition.
+Toggling `decisions` on reload takes effect immediately without restarting
+the provider or cancelling its active calls.
 
 For direct adapter calls, set `openaicompat.Config.DecisionModels` to the
 allowed model IDs and include `DecisionRequest.Model`. See the

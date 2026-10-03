@@ -13,9 +13,6 @@ func (c *Client) Decide(ctx context.Context, request llm.DecisionRequest) (*llm.
 	if !c.info.Capabilities.Decisions {
 		return nil, &llm.Error{Kind: llm.KindInvalidRequest, Provider: c.Name(), Message: "provider does not support decisions"}
 	}
-	if err := request.Validate(); err != nil {
-		return nil, err
-	}
 	if err := c.acquire(ctx); err != nil {
 		return nil, err
 	}

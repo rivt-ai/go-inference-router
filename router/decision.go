@@ -2,10 +2,8 @@ package router
 
 import (
 	"context"
-	"slices"
 
 	llm "github.com/rivt-ai/go-inference-router"
-	"github.com/rivt-ai/go-inference-router/router/config"
 )
 
 // Decide executes a decision using only the profile's explicitly enabled model.
@@ -65,30 +63,4 @@ func (r *Router) decisionProfile(id, model string) error {
 		return &llm.Error{Kind: llm.KindInvalidRequest, Provider: "router", Message: "decision model must match profile"}
 	}
 	return nil
-}
-
-// Derived allowlists participate in provider identity, so Apply retires an
-// adapter when decision permissions change, including profile-only edits.
-func decisionDefinition(cfg config.Config, id string) (config.Provider, bool) {
-	definition, ok := cfg.Providers[id]
-	if !ok || definition.Type != "openai-compatible" {
-		return definition, ok
-	}
-	var models []string
-	for _, profile := range cfg.Models {
-		if profile.Provider == id && profile.Decisions {
-			models = append(models, profile.Model)
-		}
-	}
-	if len(models) == 0 {
-		return definition, true
-	}
-	slices.Sort(models)
-	definition.Options = merge(definition.Options, map[string]any{"decision_models": slices.Compact(models)})
-	return definition, true
-}
-
-func decisionModels(definition config.Provider) []string {
-	models, _ := definition.Options["decision_models"].([]string)
-	return models
 }

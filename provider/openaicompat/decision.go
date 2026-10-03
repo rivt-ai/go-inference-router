@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"strconv"
 
 	inference "github.com/rivt-ai/go-inference-router"
@@ -30,7 +29,7 @@ type decisionAnswer struct {
 
 // Decide executes a System One request for an explicitly enabled model.
 func (c *Client) Decide(ctx context.Context, req inference.DecisionRequest) (*inference.DecisionResponse, error) {
-	if req.Model == "" || !slices.Contains(c.cfg.DecisionModels, req.Model) {
+	if !c.decides(req.Model) {
 		return nil, c.base.Errf(inference.KindInvalidRequest, 0, "decisions are not enabled for model", nil)
 	}
 	if err := req.Validate(); err != nil {
@@ -160,9 +159,9 @@ func (a decisionAnswer) decodeScore(q *inference.ScoreQuestion) (inference.Decis
 	if len(a.Legend) != len(keys) {
 		return inference.DecisionAnswer{}, fmt.Errorf("invalid score legend")
 	}
-	for _, key := range keys {
-		if _, ok := a.Legend[key]; !ok {
-			return inference.DecisionAnswer{}, fmt.Errorf("missing score legend level")
+	for i, key := range keys {
+		if a.Legend[key] != q.Levels[i] {
+			return inference.DecisionAnswer{}, fmt.Errorf("score legend does not match levels")
 		}
 	}
 	return inference.DecisionAnswer{Score: &inference.ScoreAnswer{
@@ -186,7 +185,6 @@ func distribution(values map[string]*float64, keys []string) (map[string]float64
 		result[key] = *p
 		sum += *p
 	}
-	// ponytail: tolerate wire rounding; keep the provider's original values.
 	if math.Abs(sum-1) > 0.01 {
 		return nil, fmt.Errorf("probabilities do not sum to one")
 	}

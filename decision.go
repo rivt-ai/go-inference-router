@@ -50,7 +50,7 @@ type NoulQuestion struct {
 // DecisionResponse retains the answer for each question and normalized usage.
 type DecisionResponse struct {
 	Answers map[string]DecisionAnswer `json:"answers"`
-	Usage   Usage                     `json:"usage,omitempty"`
+	Usage   Usage                     `json:"usage"`
 }
 
 // DecisionAnswer contains exactly one answer variant, matching its question.

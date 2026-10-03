@@ -27,6 +27,9 @@ const (
 type Config struct {
 	// DecisionModels explicitly enables /v1/systemone for these model IDs.
 	DecisionModels []string
+	// AllDecisionModels enables /v1/systemone for every model. The router sets
+	// it and gates decisions per profile itself.
+	AllDecisionModels bool
 	// Name overrides the provider name reported in errors and logs.
 	Name string
 	// BaseURL is the provider root, with or without a trailing "/v1".
@@ -90,11 +93,15 @@ func httpClient(cfg Config) *http.Client {
 // Name implements llm.Provider.
 func (c *Client) Name() string { return c.base.Name }
 
+func (c *Client) decides(model string) bool {
+	return model != "" && (c.cfg.AllDecisionModels || slices.Contains(c.cfg.DecisionModels, model))
+}
+
 // Capabilities implements llm.CapabilityReporter.
 func (c *Client) Capabilities(_ context.Context, model string) (inference.Capabilities, error) {
 	return inference.Capabilities{
 		Streaming: true, Tools: true, StructuredOutput: true, Embeddings: true,
-		Decisions:       model != "" && slices.Contains(c.cfg.DecisionModels, model),
+		Decisions:       c.decides(model),
 		InputModalities: []inference.Modality{inference.ModalityText}, MaxConcurrency: 8,
 	}, nil
 }

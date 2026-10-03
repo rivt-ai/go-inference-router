@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.5
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.0
 	github.com/aws/smithy-go v1.28.1
-	github.com/rivt-ai/go-inference-router v0.7.2
+	github.com/rivt-ai/go-inference-router v0.8.0
 )
 
 require (

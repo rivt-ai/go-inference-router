@@ -22,6 +22,7 @@ const (
 	MethodCapabilitiesGet    = Protocol + ".capabilities.get"
 	MethodChat               = Protocol + ".chat"
 	MethodEmbed              = Protocol + ".embed"
+	MethodDecide             = Protocol + ".decide"
 	MethodInstallPlan        = Protocol + ".install.plan"
 	MethodInstallApprove     = Protocol + ".install.approve"
 	MethodInstallAvailable   = Protocol + ".install.available"
@@ -36,6 +37,7 @@ const (
 	MethodProviderMetadata   = Protocol + ".provider.metadata"
 	MethodProviderChat       = Protocol + ".provider.chat"
 	MethodProviderEmbed      = Protocol + ".provider.embed"
+	MethodProviderDecide     = Protocol + ".provider.decide"
 )
 
 // InitializeRequest negotiates a host-to-router session.
@@ -297,4 +299,21 @@ type ErrorData struct {
 	// Process over llm.v1 sees the same throttling hint an in-process host
 	// gets from the Go type.
 	RetryAfter time.Duration `json:"retry_after,omitempty"`
+}
+
+// DecideRequest routes a decision through an explicitly enabled profile.
+type DecideRequest struct {
+	ProfileID string              `json:"profile_id"`
+	Request   llm.DecisionRequest `json:"request"`
+}
+
+// DecideResponse wraps the typed decision result.
+type DecideResponse struct {
+	Response llm.DecisionResponse `json:"response"`
+}
+
+// ProviderDecideRequest carries a decision to a Provider Process.
+type ProviderDecideRequest struct {
+	CorrelationID string              `json:"correlation_id,omitempty"`
+	Request       llm.DecisionRequest `json:"request"`
 }

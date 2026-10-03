@@ -243,6 +243,92 @@ fallback key for an existing encrypted store.
 Capability gaps are explicit and queryable. Unsupported behavior returns
 `KindInvalidRequest`; it is never silently downgraded.
 
+## Typed decisions (System One)
+
+Decision-capable backends such as llama.cpp can answer `choice`, `score`, and
+`noul` questions through `POST /v1/systemone`. The built-in
+`openai-compatible` adapter implements the optional `inference.Decider`
+interface. A compatible endpoint still needs a decision model loaded.
+
+Enable each model profile explicitly:
+
+```yaml
+providers:
+  local:
+    type: openai-compatible
+    base_url: http://localhost:8080/v1
+models:
+  local-decider:
+    provider: local
+    model: laya
+    decisions: true
+```
+
+Call `r.Decide(ctx, "local-decider", request)` with an
+`inference.DecisionRequest`. The router supplies the profile's model;
+a conflicting request model is rejected. Disabled profiles and unsupported
+providers return `KindInvalidRequest` before executing a backend decision.
+`Capabilities.Decisions` reports effective support for the selected profile.
+Toggling `decisions` on reload takes effect immediately without restarting
+the provider or cancelling its active calls.
+
+For direct adapter calls, set `openaicompat.Config.DecisionModels` to the
+allowed model IDs and include `DecisionRequest.Model`. See the
+[runnable decision example](examples/decisions/main.go):
+
+```sh
+go run ./examples/decisions -url http://localhost:8080/v1 -model laya
+```
+
+This example calls a real backend; it requires a server version supporting
+System One and a loaded decision model. Set `SYSTEMONE_API_KEY` if needed.
+The existing chat E2E fixture predates System One and cannot validate this
+endpoint; run the example against your pinned decision server/model as a
+live smoke check.
+
+Requests contain JSON `state` and a map of question IDs. Each question has
+JSON `instructions` and exactly one typed variant: `ChoiceQuestion` with
+option descriptions, `ScoreQuestion` with 2–10 ordered levels, or
+`NoulQuestion` with optional true/false descriptions. State and instructions
+accept JSON strings, objects, or arrays. Streaming and images are unsupported,
+including recognized image blocks embedded in JSON state.
+
+Results retain typed answers, probabilities, confidence, score legends, and
+normalized token usage. Zero-valued scores and probabilities are valid.
+Backend-specific model limits remain the backend's responsibility.
+Malformed answers return `KindProtocol`; HTTP 404, 405, and 501 from this
+endpoint return non-retryable `KindInvalidRequest` with the original status.
+
+Process clients use `llm.v1.decide`; provider processes use
+`llm.v1.provider.decide` and must advertise `decisions: true`.
+The protocol uses the neutral Go contract, which the adapter translates into
+System One's `type`/`criteria` wire format. For example:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "llm.v1.decide",
+  "params": {
+    "profile_id": "local-decider",
+    "request": {
+      "state": {"message": "I was charged twice."},
+      "questions": {
+        "billing": {
+          "instructions": "Is this a billing issue?",
+          "noul": {}
+        }
+      }
+    }
+  }
+}
+```
+
+The result wraps `response`, containing `answers` and `usage`; the answer
+above has the shape `{"billing":{"noul":{"noul":0.98}}}`. Existing cancellation,
+process concurrency, and opt-in request observations also apply to decisions.
+Older processes without the capability are rejected locally.
+
 ## The `llm.v1` process protocol
 
 A host launches one Router child and speaks newline-delimited JSON-RPC 2.0 over
@@ -256,7 +342,7 @@ messages, stderr for logs.
 - initialization and version negotiation
 - profile listing, provider status, discovery, metadata, and capabilities
 - chat with ordered streaming events, tools, multimodal blocks, and JSON Schema
-- embeddings, typed errors, cancellation, and graceful shutdown
+- embeddings, typed decisions, typed errors, cancellation, and graceful shutdown
 - live configuration reload and explicit Provider Process stop
 - opt-in typed lifecycle, request, install, and SDK retry observations
 - signed install discovery, planning, approval, and exact-version removal

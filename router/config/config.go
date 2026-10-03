@@ -39,9 +39,11 @@ type Provider struct {
 
 // ModelProfile maps a selectable ID to one provider model.
 type ModelProfile struct {
-	Provider string         `yaml:"provider"`
-	Model    string         `yaml:"model"`
-	Options  map[string]any `yaml:"options,omitempty"`
+	// Decisions explicitly enables typed decisions for this profile.
+	Decisions bool           `yaml:"decisions,omitempty"`
+	Provider  string         `yaml:"provider"`
+	Model     string         `yaml:"model"`
+	Options   map[string]any `yaml:"options,omitempty"`
 }
 
 // SecretRef accepts one reference form and deliberately rejects scalar YAML.

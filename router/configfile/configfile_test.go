@@ -89,3 +89,28 @@ func TestPlaintextSecretIsNamedWithoutEchoingItsValue(t *testing.T) {
 		t.Fatalf("error echoed the secret value: %v", err)
 	}
 }
+
+func TestDecisionProfileOptIn(t *testing.T) {
+	path := write(t, t.TempDir(), "decisions.yaml", `
+version: 1
+providers:
+  local:
+    type: openai-compatible
+    base_url: http://localhost:8080/v1
+models:
+  enabled:
+    provider: local
+    model: laya
+    decisions: true
+  disabled:
+    provider: local
+    model: laya
+`)
+	cfg, err := configfile.Load("", "", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Models["enabled"].Decisions || cfg.Models["disabled"].Decisions {
+		t.Fatal("decision opt-in not preserved")
+	}
+}

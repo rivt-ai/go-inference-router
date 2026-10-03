@@ -14,6 +14,9 @@ import (
 // provider that does not serve the endpoint (404/405) yields no models and no
 // error, so discovery stays best-effort.
 func (c *Client) ListModels(ctx context.Context) ([]inference.ModelInfo, error) {
+	if c.cfg.DecisionsOnly {
+		return nil, nil
+	}
 	var body struct {
 		Data []struct {
 			ID      string `json:"id"`

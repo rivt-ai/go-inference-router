@@ -68,7 +68,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		}
 		if cfg.Observer != nil {
 			options.APIOptions = append(options.APIOptions, func(stack *middleware.Stack) error {
-				return stack.Finalize.Insert(retryObserver(name, cfg.Observer), "RetryMetricsHeader", middleware.After)
+				return stack.Finalize.Insert(retryObserver(name, cfg.Observer), "Retry", middleware.After)
 			})
 		}
 	})

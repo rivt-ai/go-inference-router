@@ -12,6 +12,9 @@ import (
 
 // Chat implements llm.Provider with a single non-streaming request.
 func (c *Client) Chat(ctx context.Context, req inference.Request) (*inference.Response, error) {
+	if err := c.decisionsOnly(); err != nil {
+		return nil, err
+	}
 	guard := c.base.Guard(ctx)
 	defer guard.Stop()
 
@@ -42,6 +45,9 @@ func (c *Client) ChatStream(
 	req inference.Request,
 	onEvent func(inference.Event) error,
 ) (*inference.Response, error) {
+	if err := c.decisionsOnly(); err != nil {
+		return nil, err
+	}
 	guard := c.base.Guard(ctx)
 	defer guard.Stop()
 

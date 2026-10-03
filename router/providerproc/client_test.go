@@ -71,7 +71,7 @@ func TestProviderHelperProcess(t *testing.T) {
 	}
 	factory := func(_ context.Context, _ llmv1.ProviderInitializeRequest, observer llm.Observer) (llm.Provider, llm.Capabilities, error) {
 		return helperProvider{observer: observer}, llm.Capabilities{
-			Streaming: true, Tools: true, InputModalities: []llm.Modality{llm.ModalityText}, MaxConcurrency: 2,
+			Decisions: os.Getenv("INFROUTER_DECISIONS") == "1", Streaming: true, Tools: true, InputModalities: []llm.Modality{llm.ModalityText}, MaxConcurrency: 2,
 		}, nil
 	}
 	if err := providerhost.Serve(context.Background(), os.Stdin, os.Stdout, "test", factory); err != nil && !providerhost.NormalExit(err) {

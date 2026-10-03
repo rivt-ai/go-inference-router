@@ -55,6 +55,7 @@ func (s *Server) register() {
 	s.conn.Handle(llmv1.MethodCapabilitiesGet, s.capabilities)
 	s.conn.Handle(llmv1.MethodChat, s.chat)
 	s.conn.Handle(llmv1.MethodEmbed, s.embed)
+	s.conn.Handle(llmv1.MethodDecide, s.decide)
 	s.conn.Handle(llmv1.MethodInstallPlan, s.installPlan)
 	s.conn.Handle(llmv1.MethodInstallApprove, s.installApprove)
 	s.conn.Handle(llmv1.MethodInstallAvailable, s.installAvailable)

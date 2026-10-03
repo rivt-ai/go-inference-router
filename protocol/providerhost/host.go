@@ -40,6 +40,7 @@ func (h *host) register() {
 	h.conn.Handle(llmv1.MethodProviderModels, h.models)
 	h.conn.Handle(llmv1.MethodProviderMetadata, h.metadata)
 	h.conn.Handle(llmv1.MethodProviderEmbed, h.embed)
+	h.conn.Handle(llmv1.MethodProviderDecide, h.decide)
 	h.conn.Handle(llmv1.MethodShutdown, h.shutdown)
 }
 

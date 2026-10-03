@@ -16,6 +16,7 @@ const (
 	ObservationProviderClose    ObservationOperation = "provider.close"
 	ObservationChat             ObservationOperation = "request.chat"
 	ObservationEmbed            ObservationOperation = "request.embed"
+	ObservationDecide           ObservationOperation = "request.decide"
 	ObservationDiscover         ObservationOperation = "request.discover"
 	ObservationCapabilities     ObservationOperation = "request.capabilities"
 	ObservationInstallPlan      ObservationOperation = "install.plan"

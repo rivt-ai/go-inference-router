@@ -96,7 +96,7 @@ func (r *Router) Apply(ctx context.Context, next config.Config) error {
 	}
 	var retired map[string]*providerEntry
 	for id, entry := range r.open {
-		definition, ok := next.Providers[id]
+		definition, ok := decisionDefinition(next, id)
 		if ok && reflect.DeepEqual(entry.definition, definition) {
 			continue
 		}
@@ -272,6 +272,8 @@ func (r *Router) Capabilities(ctx context.Context, profileID string) (llm.Capabi
 			return llm.Capabilities{}, llm.Metadata{}, err
 		}
 	}
+	_, decider := provider.(llm.Decider)
+	capabilities.Decisions = capabilities.Decisions && profile.Decisions && decider
 	var metadata llm.Metadata
 	if reporter, ok := provider.(llm.MetadataReporter); ok {
 		metadata, err = reporter.ModelMetadata(callCtx, profile.Model)
@@ -427,7 +429,7 @@ func (r *Router) providerEntry(ctx context.Context, id string) (*providerEntry, 
 		r.mu.Unlock()
 		return nil, routerClosedError()
 	}
-	definition, ok := r.cfg.Providers[id]
+	definition, ok := decisionDefinition(r.cfg, id)
 	if !ok {
 		r.mu.Unlock()
 		return nil, &llm.Error{Kind: llm.KindInvalidRequest, Provider: "router", Message: fmt.Sprintf("unknown provider %q", id)}
@@ -620,7 +622,8 @@ func cloneReflect(value reflect.Value) reflect.Value {
 func inferredCapabilities(provider llm.Provider) llm.Capabilities {
 	_, streaming := provider.(llm.Streamer)
 	_, embeddings := provider.(llm.Embedder)
-	return llm.Capabilities{Streaming: streaming, Embeddings: embeddings, InputModalities: []llm.Modality{llm.ModalityText}, MaxConcurrency: 1}
+	_, decisions := provider.(llm.Decider)
+	return llm.Capabilities{Decisions: decisions, Streaming: streaming, Embeddings: embeddings, InputModalities: []llm.Modality{llm.ModalityText}, MaxConcurrency: 1}
 }
 
 func merge(defaults, overrides map[string]any) map[string]any {

@@ -71,6 +71,7 @@ const (
 // Capabilities is negotiated per Provider Process and may be narrowed by an
 // individual model's Metadata.
 type Capabilities struct {
+	Decisions        bool       `json:"decisions,omitempty"`
 	Streaming        bool       `json:"streaming,omitempty"`
 	Tools            bool       `json:"tools,omitempty"`
 	StructuredOutput bool       `json:"structured_output,omitempty"`

@@ -2,6 +2,7 @@ package openaicompat
 
 import (
 	"cmp"
+	"encoding/base64"
 	"encoding/json"
 
 	"github.com/rivt-ai/go-inference-router"
@@ -43,8 +44,10 @@ type wireJSONSchema struct {
 }
 
 type wireMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content"`
+	Role string `json:"role"`
+	// Content is the message text, or a list of content parts when the
+	// message carries images.
+	Content    any            `json:"content"`
 	Name       string         `json:"name,omitempty"`
 	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
@@ -215,7 +218,7 @@ func encodeMessages(messages []inference.Message) []wireMessage {
 	for _, msg := range messages {
 		wire := wireMessage{
 			Role:           string(msg.Role),
-			Content:        msg.Content,
+			Content:        encodeContent(msg),
 			Name:           msg.Name,
 			ToolCallID:     msg.ToolCallID,
 			Reasoning:      msg.Reasoning,
@@ -231,6 +234,39 @@ func encodeMessages(messages []inference.Message) []wireMessage {
 		out = append(out, wire)
 	}
 	return out
+}
+
+type wirePart struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *wireImageURL `json:"image_url,omitempty"`
+}
+
+type wireImageURL struct {
+	URL string `json:"url"`
+}
+
+// encodeContent returns the text alone, or text plus image_url parts when the
+// message has image blocks. Inline image bytes travel as a data: URL.
+func encodeContent(msg inference.Message) any {
+	var parts []wirePart
+	for _, block := range msg.Blocks {
+		if block.Type != inference.ContentImage || block.Media == nil {
+			continue
+		}
+		url := block.Media.URI
+		if url == "" {
+			url = "data:" + block.Media.MIMEType + ";base64," + base64.StdEncoding.EncodeToString(block.Media.Data)
+		}
+		parts = append(parts, wirePart{Type: "image_url", ImageURL: &wireImageURL{URL: url}})
+	}
+	if parts == nil {
+		return msg.Content
+	}
+	if msg.Content != "" {
+		parts = append([]wirePart{{Type: "text", Text: msg.Content}}, parts...)
+	}
+	return parts
 }
 
 func encodeTools(tools []inference.Tool) []wireTool {

@@ -400,3 +400,29 @@ func TestChatEncodesAssistantReasoning(t *testing.T) {
 		t.Fatalf("user message carried reasoning %q", got)
 	}
 }
+
+func TestImageBlocksAreEncodedAsContentParts(t *testing.T) {
+	var body struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	})
+
+	if _, err := client.Chat(context.Background(), inference.Request{Model: "m", Messages: []inference.Message{
+		inference.UserMessage("plain"),
+		inference.UserMessage("what is this?", inference.ImageData("image/png", []byte{1, 2}), inference.ImageURL("image/jpeg", "https://x/y.jpg")),
+	}}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if got := string(body.Messages[0].Content); got != `"plain"` {
+		t.Errorf("text-only content = %s, want a plain string", got)
+	}
+	want := `[{"type":"text","text":"what is this?"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AQI="}},{"type":"image_url","image_url":{"url":"https://x/y.jpg"}}]`
+	if got := string(body.Messages[1].Content); got != want {
+		t.Errorf("image content = %s\nwant %s", got, want)
+	}
+}

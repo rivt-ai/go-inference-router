@@ -9,7 +9,7 @@ toolchain go1.26.9
 
 require (
 	github.com/openai/openai-go v1.12.0
-	github.com/rivt-ai/go-inference-router v0.8.0
+	github.com/rivt-ai/go-inference-router v0.9.0
 )
 
 require (

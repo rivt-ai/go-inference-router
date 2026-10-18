@@ -5,7 +5,7 @@ module github.com/rivt-ai/go-inference-router/provider/openaisdk
 
 go 1.26
 
-toolchain go1.26.6
+toolchain go1.26.9
 
 require (
 	github.com/openai/openai-go v1.12.0

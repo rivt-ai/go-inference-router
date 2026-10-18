@@ -2,7 +2,7 @@ module github.com/rivt-ai/go-inference-router/provider/bedrocksdk
 
 go 1.26
 
-toolchain go1.26.6
+toolchain go1.26.9
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.0

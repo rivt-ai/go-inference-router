@@ -436,8 +436,8 @@ dependency's `replace` directives are ignored by whoever imports it — so their
 
 Run the **Release** workflow from `main` with the version (`vX.Y.Z`). It opens
 a `chore(release): vX.Y.Z` PR that points each submodule at that version and
-records the root module's hash in its `go.sum` (`make prepare-release`), with
-auto-merge on. Approve it; when it lands, the same workflow builds and signs
+records the root module's hash in its `go.sum` (`make prepare-release`), and
+merges it once required checks pass. When it lands, the same workflow builds and signs
 the assets, publishes the release, verifies each submodule with `GOWORK=off`
 (as a consumer sees it) and creates the per-directory tags (`router/vX.Y.Z`)
 the module proxy resolves them from - all on the merge commit.

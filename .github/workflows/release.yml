@@ -121,8 +121,18 @@ jobs:
             --body "Points the submodules at \`$RELEASE_VERSION\` and records the root module's hash. Merging publishes the release and tags every module on the merge commit."
           # The App merges as a ruleset bypass actor once required checks pass;
           # auto-merge never uses bypass, so it would wait on the update rule.
-          sleep 30  # let the checks register
-          GH_TOKEN="$CHECKS_TOKEN" gh pr checks "$branch" --required --watch
+          # Named, not `gh pr checks --watch`: Security registers minutes after the
+          # others, and bypass would merge past a check that has not appeared yet.
+          green="E2E=pass Lint=pass Security=pass Test=pass"
+          for _ in $(seq 120); do
+            sleep 15
+            state=$(GH_TOKEN="$CHECKS_TOKEN" gh pr checks "$branch" --json name,bucket \
+              --jq '[.[] | select(.name | IN("E2E","Lint","Security","Test"))] | sort_by(.name) | map(.name + "=" + .bucket) | join(" ")' || true)
+            echo "$state"
+            [[ "$state" == *=fail* || "$state" == *=cancel* ]] && { echo "required check failed" >&2; exit 1; }
+            [[ "$state" == "$green" ]] && break
+          done
+          [[ "$state" == "$green" ]] || { echo "timed out waiting for checks" >&2; exit 1; }
           gh pr merge --squash --admin "$branch"
 
   release:

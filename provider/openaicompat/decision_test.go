@@ -165,3 +165,42 @@ func TestDecideRejectsMalformedDistributions(t *testing.T) {
 		})
 	}
 }
+
+func TestDecisionsOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/systemone" {
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+		_, _ = fmt.Fprint(w, decisionBody)
+	}))
+	defer server.Close()
+	client := New(Config{BaseURL: server.URL, DecisionsOnly: true, AllDecisionModels: true})
+	ctx := context.Background()
+	caps, _ := client.Capabilities(ctx, "decision-model")
+	if !caps.Decisions || caps.Streaming || caps.Tools || caps.StructuredOutput || caps.Embeddings {
+		t.Errorf("caps = %+v", caps)
+	}
+	_, chatErr := client.Chat(ctx, llm.Request{Model: "decision-model"})
+	_, streamErr := client.ChatStream(ctx, llm.Request{Model: "decision-model"}, func(llm.Event) error { return nil })
+	_, embedErr := client.Embed(ctx, llm.EmbeddingRequest{Model: "decision-model", Texts: []string{"x"}})
+	for _, err := range []error{chatErr, streamErr, embedErr} {
+		if !llm.IsKind(err, llm.KindInvalidRequest) {
+			t.Errorf("err = %v", err)
+		}
+	}
+	if models, err := client.ListModels(ctx); models != nil || err != nil {
+		t.Errorf("ListModels = %v, %v", models, err)
+	}
+	if _, err := client.Decide(ctx, decisionRequest()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestJevConfig(t *testing.T) {
+	cfg := JevConfig("key")
+	cfg.BaseURL = "http://unused"
+	caps, _ := New(cfg).Capabilities(context.Background(), JevModel)
+	if !caps.Decisions || caps.Streaming {
+		t.Errorf("caps = %+v", caps)
+	}
+}

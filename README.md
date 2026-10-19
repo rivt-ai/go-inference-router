@@ -272,6 +272,37 @@ providers return `KindInvalidRequest` before executing a backend decision.
 Toggling `decisions` on reload takes effect immediately without restarting
 the provider or cancelling its active calls.
 
+### TypeSafe Jev
+
+[Jev](https://docs.typesafe.ai/api) serves only `POST /v1/systemone`. Set
+`decisions_only` so capabilities report decisions alone; chat, streaming,
+and embeddings fail locally with `KindInvalidRequest`, and discovery is empty:
+
+```yaml
+providers:
+  jev:
+    type: openai-compatible
+    base_url: https://api.typesafe.ai/v1
+    options: {decisions_only: true}
+    secrets:
+      api_key: {env: TYPESAFE_API_KEY}
+models:
+  jev:
+    provider: jev
+    model: jev-latest
+    decisions: true
+```
+
+Library users can skip the router:
+
+```go
+jev := openaicompat.New(openaicompat.JevConfig(os.Getenv("TYPESAFE_API_KEY")))
+resp, err := jev.Decide(ctx, inference.DecisionRequest{Model: openaicompat.JevModel, ...})
+```
+
+Override `BaseURL` on the returned config for a self-hosted Jev-compatible
+server.
+
 For direct adapter calls, set `openaicompat.Config.DecisionModels` to the
 allowed model IDs and include `DecisionRequest.Model`. See the
 [runnable decision example](examples/decisions/main.go):

@@ -75,6 +75,7 @@ func (s DefaultSource) Open(ctx context.Context, id string, definition config.Pr
 		return openaicompat.New(openaicompat.Config{
 			Name: id, BaseURL: definition.BaseURL, APIKey: secrets["api_key"], Headers: definition.Headers,
 			AllDecisionModels: true,
+			DecisionsOnly:     definition.Options["decisions_only"] == true,
 			MetadataPath:      stringOption(definition.Options, "metadata_path"),
 			HTTPClient:        s.HTTPClient, HTTPTimeout: s.HTTPTimeout, StallTimeout: s.StallTimeout,
 		}), nil

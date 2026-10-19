@@ -30,6 +30,9 @@ type Config struct {
 	// AllDecisionModels enables /v1/systemone for every model. The router sets
 	// it and gates decisions per profile itself.
 	AllDecisionModels bool
+	// DecisionsOnly marks a backend that serves only /v1/systemone (e.g.
+	// TypeSafe Jev): chat and embeddings fail locally and discovery is empty.
+	DecisionsOnly bool
 	// Name overrides the provider name reported in errors and logs.
 	Name string
 	// BaseURL is the provider root, with or without a trailing "/v1".
@@ -99,11 +102,24 @@ func (c *Client) decides(model string) bool {
 
 // Capabilities implements llm.CapabilityReporter.
 func (c *Client) Capabilities(_ context.Context, model string) (inference.Capabilities, error) {
+	if c.cfg.DecisionsOnly {
+		return inference.Capabilities{
+			Decisions:       c.decides(model),
+			InputModalities: []inference.Modality{inference.ModalityText}, MaxConcurrency: 8,
+		}, nil
+	}
 	return inference.Capabilities{
 		Streaming: true, Tools: true, StructuredOutput: true, Embeddings: true,
 		Decisions:       c.decides(model),
 		InputModalities: []inference.Modality{inference.ModalityText}, MaxConcurrency: 8,
 	}, nil
+}
+
+func (c *Client) decisionsOnly() error {
+	if c.cfg.DecisionsOnly {
+		return c.base.Errf(inference.KindInvalidRequest, 0, "provider supports decisions only", nil)
+	}
+	return nil
 }
 
 func (c *Client) applyHeaders(req *http.Request) {

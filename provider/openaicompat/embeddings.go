@@ -18,6 +18,9 @@ type embeddingRequest struct {
 // returned in request order; a provider returning a different count is a
 // protocol failure rather than a silently short result.
 func (c *Client) Embed(ctx context.Context, req inference.EmbeddingRequest) ([][]float32, error) {
+	if err := c.decisionsOnly(); err != nil {
+		return nil, err
+	}
 	if len(req.Texts) == 0 {
 		return nil, c.base.Errf(inference.KindInvalidRequest, 0, "no texts to embed", nil)
 	}

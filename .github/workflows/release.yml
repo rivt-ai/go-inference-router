@@ -94,18 +94,22 @@ jobs:
       - name: Open the release PR with auto-merge
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-          APP_SLUG: ${{ steps.app.outputs.app-slug }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          bot="${APP_SLUG}[bot]"
-          bot_id=$(gh api "/users/${bot}" --jq .id)
-          git config user.name "$bot"
-          git config user.email "${bot_id}+${bot}@users.noreply.github.com"
-          gh auth setup-git
           branch="release/$RELEASE_VERSION"
-          git switch -c "$branch"
-          git commit -am "chore(release): $RELEASE_VERSION"
-          git push origin "$branch"
+          head=$(git rev-parse HEAD)
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/heads/$branch" -f "sha=$head" >/dev/null
+          # Committed through the API rather than git push so GitHub signs it;
+          # main requires verified signatures.
+          files=$(git diff --name-only | while read -r f; do
+            jq -n --arg path "$f" --arg contents "$(base64 -w0 "$f")" '{$path, $contents}'
+          done | jq -s .)
+          jq -n --arg repo "$GITHUB_REPOSITORY" --arg branch "$branch" --arg head "$head" \
+            --arg msg "chore(release): $RELEASE_VERSION" --argjson files "$files" \
+            '{query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: {input: {branch: {repositoryNameWithOwner: $repo, branchName: $branch},
+                expectedHeadOid: $head, message: {headline: $msg}, fileChanges: {additions: $files}}}}' \
+            | gh api graphql --input - --jq .data.createCommitOnBranch.commit.oid
           gh pr create --base main --head "$branch" \
             --title "chore(release): $RELEASE_VERSION" \
             --body "Points the submodules at \`$RELEASE_VERSION\` and records the root module's hash. Merging publishes the release and tags every module on the merge commit."

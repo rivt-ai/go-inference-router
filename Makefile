@@ -1,4 +1,4 @@
-.PHONY: test test-race test-submodules build e2e sigstore-e2e sync-trusted-root lint lint-ci lint-submodules verify fmt tidy release sync-module-versions check-module-versions
+.PHONY: test test-race test-submodules build e2e sigstore-e2e sync-trusted-root lint lint-ci lint-submodules verify fmt tidy release prepare-release check-module-versions
 
 CUSTOM_LINT ?= ./custom-golangci-lint
 CUSTOM_LINT_ABS := $(abspath $(CUSTOM_LINT))
@@ -99,14 +99,12 @@ release:
 	./scripts/build-release.sh "$(VERSION)" "$(OUTDIR)"
 
 # Published submodules require the root module by version rather than by
-# replace directive, so they have to be pointed at the version about to be
-# tagged before a release runs. go.work keeps local builds on the checkout.
-sync-module-versions:
+# replace directive, so a release points them at the version about to be
+# tagged (go.mod) and records its hash (go.sum). The Release workflow runs
+# this; go.work keeps local builds on the checkout.
+prepare-release:
 	@test -n "$(VERSION)" || (echo "VERSION is required" && exit 1)
-	@for m in $(SUBMODULES); do \
-		(cd $$m && go mod edit -require=github.com/rivt-ai/go-inference-router@$(VERSION)) || exit 1; \
-		echo "$$m -> $(VERSION)"; \
-	done
+	./scripts/prepare-release.sh "$(VERSION)"
 
 check-module-versions:
 	@test -n "$(VERSION)" || (echo "VERSION is required" && exit 1)

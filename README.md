@@ -434,19 +434,17 @@ dependency's `replace` directives are ignored by whoever imports it — so their
 
 ### Releasing
 
-The Go module proxy resolves each submodule from a tag prefixed with its
-directory (`router/v0.2.0`), and a submodule's `go.sum` can only record the
-root module's hash once the root tag exists. So a version goes out in two
-passes:
+Run the **Release** workflow from `main` with the version (`vX.Y.Z`). It opens
+a `chore(release): vX.Y.Z` PR that points each submodule at that version and
+records the root module's hash in its `go.sum` (`make prepare-release`), with
+auto-merge on. Approve it; when it lands, the same workflow builds and signs
+the assets, publishes the release, verifies each submodule with `GOWORK=off`
+(as a consumer sees it) and creates the per-directory tags (`router/vX.Y.Z`)
+the module proxy resolves them from - all on the merge commit.
 
-1. `make sync-module-versions VERSION=vX.Y.Z`, commit.
-2. Run the **Release** workflow — builds the signed assets and tags the root
-   module. `make check-module-versions VERSION=vX.Y.Z` gates it.
-3. `make tidy`, commit — records the now-published root module's hash in each
-   submodule's `go.sum`.
-4. Run the **Release Go modules** workflow — verifies each submodule builds
-   with `GOWORK=off` (as a consumer sees it), then creates the per-directory
-   tags.
+The root hash can be recorded before the tag exists because the release commit
+changes only submodule files, which the root module's zip excludes;
+`scripts/modsum` computes it from git the way the proxy does.
 
 ## Status
 

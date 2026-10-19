@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verifies every published submodule requires the root module at $1, and that
-# none of them carry a replace directive for it. Run `make sync-module-versions
+# none of them carry a replace directive for it. Run `make prepare-release
 # VERSION=vX.Y.Z` to fix a mismatch.
 set -euo pipefail
 

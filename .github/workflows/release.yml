@@ -1,5 +1,11 @@
 name: Release
 
+# One dispatch per version. `prepare` (dispatch) points the submodules at the
+# version and opens a release PR with auto-merge; its squash commit landing on
+# main runs `release` (push), which tags the root and every submodule on that
+# commit. The release commit touches only submodule go.mod/go.sum, so the root
+# module's hash is known before the tag exists (scripts/modsum) and the PR
+# carries it - no follow-up commit, no second workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -7,6 +13,13 @@ on:
         description: Release SemVer tag (for example v0.2.0 or v0.2.0-alpha.1)
         required: true
         type: string
+  push:
+    branches: [main]
+    paths:
+      - router/go.mod
+      - router/go.sum
+      - provider/*/go.mod
+      - provider/*/go.sum
 
 # Read-only by default. The one job that publishes re-declares the write
 # scopes it needs, so nothing added to this workflow later can write to the
@@ -14,19 +27,17 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
-  release:
+  prepare:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
+    # Holds the release App's key; restricted to main in the repo settings.
+    environment: release
+    concurrency:
+      group: release
+      cancel-in-progress: false
     steps:
-      - name: Require main and prerelease SemVer
+      - name: Require main and SemVer
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
@@ -43,6 +54,90 @@ jobs:
             echo "Release $RELEASE_VERSION already exists" >&2
             exit 1
           fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+
+      - name: Point submodules at the version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ./scripts/prepare-release.sh "$RELEASE_VERSION"
+
+      # The release commit may change nothing but the submodule pins; anything
+      # else would change the root module after its hash was computed.
+      - name: Require only submodule go.mod/go.sum changes
+        run: |
+          changed=$(git diff --name-only)
+          test -n "$changed" || { echo "nothing to release: pins already match" >&2; exit 1; }
+          if grep -vE '^(router|provider/[a-z]+)/go\.(mod|sum)$' <<<"$changed"; then
+            echo "release commit may only touch submodule go.mod/go.sum" >&2
+            exit 1
+          fi
+
+      # An App token, not GITHUB_TOKEN: a PR opened with GITHUB_TOKEN does not
+      # trigger the required checks, so it could never merge.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Push the release branch, open the PR, enable auto-merge: nothing else.
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Open the release PR with auto-merge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          bot="${APP_SLUG}[bot]"
+          bot_id=$(gh api "/users/${bot}" --jq .id)
+          git config user.name "$bot"
+          git config user.email "${bot_id}+${bot}@users.noreply.github.com"
+          gh auth setup-git
+          branch="release/$RELEASE_VERSION"
+          git switch -c "$branch"
+          git commit -am "chore(release): $RELEASE_VERSION"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore(release): $RELEASE_VERSION" \
+            --body "Points the submodules at \`$RELEASE_VERSION\` and records the root module's hash. Merging publishes the release and tags every module on the merge commit."
+          gh pr merge --auto --squash "$branch"
+
+  release:
+    # The squash commit of a prepare PR is titled "chore(release): vX.Y.Z".
+    if: "github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release): v')"
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Read the version from the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          [[ "$COMMIT_MESSAGE" =~ ^chore\(release\):\ (v[0-9]+\.[0-9]+\.[0-9]+[-+.0-9A-Za-z]*) ]] || {
+            echo "release commit message names no version" >&2
+            exit 1
+          }
+          version=${BASH_REMATCH[1]}
+          if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $version already exists" >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Require passing main pipeline
         env:
@@ -83,9 +178,12 @@ jobs:
       # version being tagged here, or `go get` on a submodule resolves the
       # root module to something this commit was never tested against.
       - name: Require submodule go.mod to pin this version
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
         run: ./scripts/check-module-versions.sh "$RELEASE_VERSION"
+
+      # Re-deriving the pins must be a no-op: the go.sum hashes are this
+      # commit's root module, so the tag about to be made will match them.
+      - name: Require submodule go.sum to record this commit's root hash
+        run: ./scripts/prepare-release.sh "$RELEASE_VERSION" && git diff --exit-code
 
       # The signing key lives in RUNNER_TEMP, not the workspace, so it can
       # never end up in a build artifact or a git status. The registry public
@@ -108,7 +206,6 @@ jobs:
 
       - name: Build release artifacts
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
           INFROUTER_REGISTRY_PUBLIC_KEY: ${{ secrets.INFROUTER_REGISTRY_PUBLIC_KEY }}
           INFROUTER_REGISTRY_SIGNING_KEY: ${{ env.SIGNING_KEY_PATH }}
           # Additive: the Ed25519 sidecar is still produced alongside the
@@ -144,7 +241,6 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           prerelease_flag=()
           [[ "$RELEASE_VERSION" == *-* ]] && prerelease_flag=(--prerelease)
@@ -154,3 +250,29 @@ jobs:
             --title "$RELEASE_VERSION" \
             --generate-notes \
             "${prerelease_flag[@]}"
+
+      # Builds and tests each submodule the way a consumer sees it: workspace
+      # off, module graph readonly, root fetched from the proxy at the tag just
+      # published. A wrong go.sum entry fails here, before the submodule tags.
+      - name: Verify submodules resolve without the workspace
+        env:
+          GOWORK: "off"
+          GOFLAGS: -mod=readonly
+        run: |
+          for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk; do
+            echo "== $module =="
+            (cd "$module" && go build ./... && go test ./...)
+          done
+
+      # The proxy resolves `go get .../router@vX.Y.Z` from a `router/vX.Y.Z`
+      # tag. Created through the API so the checkout needs no push credential.
+      - name: Tag published submodules
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for module in router provider/openaisdk provider/anthropicsdk provider/bedrocksdk; do
+            tag="$module/$RELEASE_VERSION"
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA" >/dev/null
+            echo "tagged $tag"
+          done

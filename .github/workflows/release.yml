@@ -1,7 +1,7 @@
 name: Release
 
 # One dispatch per version. `prepare` (dispatch) points the submodules at the
-# version and opens a release PR with auto-merge; its squash commit landing on
+# version, opens a release PR and merges it once green; its squash commit landing on
 # main runs `release` (push), which tags the root and every submodule on that
 # commit. The release commit touches only submodule go.mod/go.sum, so the root
 # module's hash is known before the tag exists (scripts/modsum) and the PR
@@ -33,6 +33,11 @@ jobs:
     runs-on: ubuntu-latest
     # Holds the release App's key; restricted to main in the repo settings.
     environment: release
+    # Read-only for GITHUB_TOKEN: it only watches the release PR's checks.
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
     concurrency:
       group: release
       cancel-in-progress: false
@@ -87,13 +92,14 @@ jobs:
         with:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          # Push the release branch, open the PR, enable auto-merge: nothing else.
+          # Create the release branch, open the PR, merge it: nothing else.
           permission-contents: write
           permission-pull-requests: write
 
-      - name: Open the release PR with auto-merge
+      - name: Open and merge the release PR
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          CHECKS_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           branch="release/$RELEASE_VERSION"
@@ -113,7 +119,21 @@ jobs:
           gh pr create --base main --head "$branch" \
             --title "chore(release): $RELEASE_VERSION" \
             --body "Points the submodules at \`$RELEASE_VERSION\` and records the root module's hash. Merging publishes the release and tags every module on the merge commit."
-          gh pr merge --auto --squash "$branch"
+          # The App merges as a ruleset bypass actor once required checks pass;
+          # auto-merge never uses bypass, so it would wait on the update rule.
+          # Named, not `gh pr checks --watch`: Security registers minutes after the
+          # others, and bypass would merge past a check that has not appeared yet.
+          green="E2E=pass Lint=pass Security=pass Test=pass"
+          for _ in $(seq 120); do
+            sleep 15
+            state=$(GH_TOKEN="$CHECKS_TOKEN" gh pr checks "$branch" --json name,bucket \
+              --jq '[.[] | select(.name | IN("E2E","Lint","Security","Test"))] | sort_by(.name) | map(.name + "=" + .bucket) | join(" ")' || true)
+            echo "$state"
+            [[ "$state" == *=fail* || "$state" == *=cancel* ]] && { echo "required check failed" >&2; exit 1; }
+            [[ "$state" == "$green" ]] && break
+          done
+          [[ "$state" == "$green" ]] || { echo "timed out waiting for checks" >&2; exit 1; }
+          gh pr merge --squash --admin "$branch"
 
   release:
     # The squash commit of a prepare PR is titled "chore(release): vX.Y.Z".

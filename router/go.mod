@@ -6,7 +6,7 @@ toolchain go1.26.9
 
 require (
 	filippo.io/age v1.3.2
-	github.com/godbus/dbus/v5 v5.2.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/rivt-ai/go-inference-router v0.9.1
 	github.com/zalando/go-keyring v0.2.8
 	go.yaml.in/yaml/v4 v4.0.0-rc.6

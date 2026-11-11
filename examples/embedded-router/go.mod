@@ -1,11 +1,9 @@
 module github.com/rivt-ai/go-inference-router/examples/embedded-router
 
-go 1.26.0
-
-toolchain go1.26.9
+go 1.27.0
 
 require (
-	github.com/rivt-ai/go-inference-router v0.8.0
+	github.com/rivt-ai/go-inference-router v0.9.1
 	github.com/rivt-ai/go-inference-router/router v0.0.0
 )
 
